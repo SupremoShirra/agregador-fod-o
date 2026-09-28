@@ -1,2 +1,2 @@
-# agregador-fod-o
+# agregador-fodastico
 site agregador de varios projetos
