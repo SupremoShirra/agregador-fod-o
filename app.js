@@ -56,7 +56,7 @@ const isAuthErr = (e) => e && (e.status === 401 || /jwt|not authenticated/i.test
 async function loadList(force) {
   if (state.list && !force) return state.list;
   const { data, error } = await sb.from('projects')
-    .select('id, title, description, category, updated_at, user_id, forked_from, profiles(username)')
+    .select('id, title, description, category, updated_at, user_id, forked_from, profiles!user_id(username)')
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return (state.list = data.map((p) => ({ ...p, author: p.profiles ? p.profiles.username : '?' })));
@@ -298,7 +298,7 @@ async function showProfile(name, my) {
 
 async function showProject(id, my) {
   const [{ data: p, error }, list] = await Promise.all([
-    sb.from('projects').select('id, title, description, category, code, updated_at, user_id, forked_from, profiles(username)').eq('id', id).maybeSingle(),
+    sb.from('projects').select('id, title, description, category, code, updated_at, user_id, forked_from, profiles!user_id(username)').eq('id', id).maybeSingle(),
     loadList()
   ]);
   if (error) throw error;
@@ -320,7 +320,7 @@ async function showProject(id, my) {
   const stage = h('div', { class: 'stage' }, frame);
 
   const loadRank = async () => {
-    const { data, error: er } = await sb.from('scores').select('score, profiles(username)')
+    const { data, error: er } = await sb.from('scores').select('score, profiles!user_id(username)')
       .eq('project_id', p.id).order('score', { ascending: false }).order('updated_at').limit(100);
     if (er) throw er;
     return data;
