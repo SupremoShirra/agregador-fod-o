@@ -5,7 +5,7 @@ const CATS = ['Utilitários', 'Jogos', 'Produtividade', 'Design e arte', 'Educa�
 const MAX_CODE = 400000;
 // Edite aqui as novidades do site (mais recente primeiro)
 const NEWS = [
-  { d: '2026-09-29', t: 'Perfis, forks e moderação', b: 'Agora cada usuário tem perfil, todo jogo tem página própria com forks e o jogo abre em tela cheia.' }
+  { d: '2026-09-29', t: 'Perfis, forks e moderação', b: ['Agora cada usuário tem perfil.', 'Todo jogo tem página própria com forks.', 'O jogo abre em tela cheia.'] }
 ];
 const ABOUT = 'A Bancada é a vitrine de apps e jogos em HTML da turma. Todo mundo pode jogar e ler o código; só o autor (ou a moderação) altera um projeto. Quer melhorar o jogo de alguém? Crie um fork.';
 const CFG = window.CONFIG || {};
@@ -275,7 +275,7 @@ async function showHome(my) {
 
 function showNews() {
   $('#view').replaceChildren(h('div', { class: 'page' }, h('h1', {}, "What's new"),
-    ...NEWS.map((n) => h('article', {}, h('time', {}, fmtDate(n.d)), h('h2', {}, n.t), h('p', {}, n.b)))));
+    ...NEWS.map((n) => h('article', {}, h('time', {}, fmtDate(n.d)), h('h2', {}, n.t), (Array.isArray(n.b) ? h('ol', {}, n.b.map((i) => h('li', {}, i))) : h('p', {}, n.b))))));
 }
 function showAbout() {
   $('#view').replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'Sobre nós'), h('p', {}, ABOUT)));
