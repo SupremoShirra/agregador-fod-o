@@ -3,25 +3,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bancada – projetos da turma</title>
+  <meta http-equiv="Content-Security-Policy" content="object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Bancada</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="top">
     <a class="logo" href="#/">Bancada</a>
+    <nav class="nav">
+      <a href="#/novidades">Novidades</a>
+      <a href="#/sobre">Sobre nós</a>
+      <a href="#/mod" id="modLink" hidden>Moderação</a>
+    </nav>
     <div id="session" class="session"></div>
   </header>
-
   <main id="view"></main>
 
   <dialog id="authDlg">
-    <form id="authForm" autocomplete="on">
+    <form id="authForm">
       <h2 id="authTitle">Entrar</h2>
       <label>Nome de usuário
         <input name="username" required minlength="3" maxlength="20" pattern="[a-zA-Z0-9_]+" autocomplete="username">
       </label>
       <label>Senha
-        <input name="password" type="password" required minlength="8" maxlength="72" autocomplete="current-password">
+        <input name="password" type="password" required minlength="8" maxlength="72">
       </label>
       <p id="authHint" class="hint"></p>
       <p id="authError" class="error" role="alert"></p>
@@ -36,24 +42,18 @@
 
   <dialog id="editDlg">
     <form id="editForm">
-      <h2 id="editTitle">Novo projeto</h2>
-      <label>Título
-        <input name="title" required minlength="2" maxlength="80">
-      </label>
-      <label>Categoria
-        <select name="category" required></select>
-      </label>
-      <label>Descrição curta
-        <textarea name="description" rows="2" required minlength="2" maxlength="300"></textarea>
-      </label>
-      <label>Código (HTML, CSS e JS num arquivo só)
-        <textarea name="code" rows="12" required spellcheck="false" class="mono" placeholder="<!DOCTYPE html>&#10;<html>...</html>"></textarea>
+      <h2 id="editTitle">Novo jogo</h2>
+      <label>Título <input name="title" required minlength="2" maxlength="80"></label>
+      <label>Categoria <select name="category" required></select></label>
+      <label>Descrição curta <textarea name="description" rows="2" required minlength="2" maxlength="300"></textarea></label>
+      <label>Código (HTML, CSS e JS em um arquivo só)
+        <textarea name="code" rows="12" required maxlength="400000" spellcheck="false" class="mono"></textarea>
       </label>
       <p id="editError" class="error" role="alert"></p>
       <div class="row">
         <span class="spacer"></span>
         <button type="button" class="btn ghost" data-close>Cancelar</button>
-        <button type="submit" class="btn solid">Salvar projeto</button>
+        <button type="submit" class="btn solid" id="editSubmit">Salvar</button>
       </div>
     </form>
   </dialog>
