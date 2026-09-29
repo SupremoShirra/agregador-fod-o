@@ -13,16 +13,12 @@ a{color:inherit}
 .session{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 main{max-width:70rem;margin:0 auto;padding:clamp(1rem,4vw,2rem)}
 .btn{font:inherit;font-size:.9rem;font-weight:600;padding:.5rem .9rem;border:1.5px solid var(--ink);background:transparent;color:var(--ink);border-radius:99px;cursor:pointer;text-decoration:none;display:inline-block;transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;}
-.btn:hover{background:var(--ink);color:var(--bg)
-          .btn:hover {
-  background: #00f0ff; /* Coloque aqui a cor que desejar */
-  color: #000;         /* Cor do texto para dar contraste */
+.btn:hover {
+  background: #00f0ff;
+  color: #000;
   border-color: #00f0ff;
-  
-  /* O efeito de Bloom (brilho neon) */
   box-shadow: 0 0 15px #00f0ff, 0 0 30px #00f0ff;
-}
-          }
+}}
 .btn.solid{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn.solid:hover{filter:brightness(1.1)}
 .btn.ghost{border-color:transparent}
