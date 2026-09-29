@@ -17,8 +17,8 @@ const NEWS = [
     'Moderação ativa.',
     'Suporte a records e rankings. (veja a [Documentação](#/docs) para saber como implementar)'
   ] }
-];;
-const ABOUT = 'A Bancada é a vitrine de apps e jogos em HTML feitos com i.a. Todo mundo pode jogar e ler o código; mas somente o autor (ou a moderação) podedm alterar um projeto. Quer melhorar o jogo de alguém? Crie um fork!';
+];
+const ABOUT = 'A Bancada é a vitrine de apps e jogos em HTML da turma. Todo mundo pode jogar e ler o código; só o autor (ou a moderação) altera um projeto. Quer melhorar o jogo de alguém? Crie um fork.';
 const CFG = window.CONFIG || {};
 const configured = CFG.SUPABASE_URL && !CFG.SUPABASE_URL.startsWith('COLE_') && CFG.SUPABASE_ANON_KEY && !CFG.SUPABASE_ANON_KEY.startsWith('COLE_');
 const sb = configured ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
@@ -286,10 +286,10 @@ async function showHome(my) {
 
 function showNews() {
   $('#view').replaceChildren(h('div', { class: 'page' }, h('h1', {}, "What's new"),
-    ...NEWS.map((n) => h('article', {}, h('time', {}, fmtDate(n.d)), h('h2', {}, n.t), (Array.isArray(n.b) ? h('ol', {}, n.b.map((i) => h('li', {}, i))) : h('p', {}, n.b))))));
+    ...NEWS.map((n) => h('article', {}, h('time', {}, fmtDate(n.d)), h('h2', {}, n.t), (Array.isArray(n.b) ? h('ol', {}, n.b.map((i) => h('li', {}, rich(i)))) : h('p', {}, rich(n.b)))))));
 }
 function showAbout() {
-  $('#view').replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'Sobre nós'), h('p', {}, ABOUT)));
+  $('#view').replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'Sobre nós'), h('p', {}, rich(ABOUT))));
 }
 
 async function showProfile(name, my) {
@@ -491,8 +491,16 @@ async function desenharRanking() {
   ] }
 ];
 
-// `texto` entre crases vira <code>; tudo entra como texto puro
-const rich = (t) => t.split('`').map((s, i) => (i % 2 ? h('code', {}, s) : s));
+// `texto` vira <code>; [texto](#/docs) ou [texto](https://...) vira link; tudo entra como texto puro
+const rich = (t) => t.split(/(\[[^\]]+\]\([^)\s]+\))/).flatMap((part) => {
+  const m = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+  if (m) {
+    if (m[2].startsWith('#/')) return h('a', { href: m[2] }, m[1]);
+    if (/^https?:\/\//i.test(m[2])) return h('a', { href: m[2], target: '_blank', rel: 'noopener noreferrer' }, m[1]);
+    return part;   // endereços perigosos (ex.: javascript:) viram texto comum
+  }
+  return part.split('`').map((x, i) => (i % 2 ? h('code', {}, x) : x));
+});
 
 function docBlock([type, v]) {
   if (type === 'p') return h('p', {}, rich(v));
