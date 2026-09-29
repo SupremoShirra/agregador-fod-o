@@ -25,7 +25,7 @@ function h(tag, props = {}, ...kids) {
 }
 
 const state = { me: null, list: null, cat: 'Todos', q: '' };
-let nav = 0, toastTimer;
+let nav = 0, toastTimer, cleanup = null;
 const fmtDate = (t) => new Date(t).toLocaleDateString('pt-BR');
 const emailOf = (u) => u.toLowerCase() + '@' + CFG.EMAIL_DOMAIN;
 const isStaff = () => !!state.me && !state.me.banned && ['owner', 'moderator'].includes(state.me.role);
@@ -237,6 +237,11 @@ const roleTag = (u) => [
   u.role === 'owner' ? h('span', { class: 'tag role' }, 'Dono') : u.role === 'moderator' ? h('span', { class: 'tag role' }, 'Moderador') : null,
   u.banned ? h('span', { class: 'tag ban' }, 'Banido') : null];
 
+/* ---------- SDK de ranking (injetado em todo jogo) ---------- */
+// O jogo fala com o site por postMessage; só o site (pai) conversa com o banco, usando o login do jogador.
+const SDK = `<script>(()=>{const p=new Map();let n=0;addEventListener('message',e=>{const m=e.data;if(e.source!==parent||!m||m.bancada!==1)return;const r=p.get(m.id);if(!r)return;p.delete(m.id);m.error?r.reject(new Error(m.error)):r.resolve(m)});const call=(type,d)=>new Promise((res,rej)=>{const id=++n;p.set(id,{resolve:res,reject:rej});parent.postMessage({bancada:1,id,type,...d},'*');setTimeout(()=>{if(p.delete(id))rej(new Error('Tempo esgotado'))},8000)});window.Bancada={submitScore:s=>call('score',{score:s}).then(r=>r.best),getRanking:n=>call('ranking',{limit:n}).then(r=>r.ranking),getUser:()=>call('user').then(r=>r.username)}})()<\/script>`;
+const withSdk = (code) => /<(?:head|html)[^>]*>/i.test(code) ? code.replace(/<(?:head|html)[^>]*>/i, (m) => m + SDK) : SDK + code;
+
 /* ---------- Páginas ---------- */
 async function showHome(my) {
   const list = await loadList();
@@ -248,7 +253,7 @@ async function showHome(my) {
     chips.replaceChildren(...['Todos', ...CATS, 'Forks'].map((c) =>
       h('button', { class: 'chip', 'aria-pressed': String(c === state.cat), onclick: () => { state.cat = c; draw(); } }, c)));
     const r = list.filter((p) =>
-      (state.cat === 'Todos' || (state.cat === 'Forks' ? p.forked_from : p.category === state.cat)) &&
+      (state.cat === 'Forks' ? p.forked_from : !p.forked_from && (state.cat === 'Todos' || p.category === state.cat)) &&
       (!q || [p.title, p.description, p.author].some((s) => s.toLowerCase().includes(q))));
     grid.replaceChildren(...(r.length ? r.map(card) : [h('li', { class: 'empty' }, list.length ? 'Nada bate com a busca.' : 'Ainda não há projetos. Publique o primeiro!')]));
   };
@@ -311,8 +316,40 @@ async function showProject(id, my) {
     sandbox: 'allow-scripts allow-pointer-lock allow-modals allow-forms', allow: 'fullscreen; gamepad; autoplay',
     allowfullscreen: '', title: p.title, referrerpolicy: 'no-referrer', loading: 'eager'
   });
-  frame.srcdoc = p.code;
+  frame.srcdoc = withSdk(p.code);
   const stage = h('div', { class: 'stage' }, frame);
+
+  const loadRank = async () => {
+    const { data, error: er } = await sb.from('scores').select('score, profiles(username)')
+      .eq('project_id', p.id).order('score', { ascending: false }).order('updated_at').limit(100);
+    if (er) throw er;
+    return data;
+  };
+  let last = 0;
+  const onMsg = async (e) => {
+    const m = e.data;
+    if (e.source !== frame.contentWindow || !m || m.bancada !== 1) return;
+    const reply = (d) => frame.contentWindow && frame.contentWindow.postMessage({ bancada: 1, id: m.id, ...d }, '*');
+    try {
+      if (m.type === 'user') return reply({ username: state.me ? state.me.username : null });
+      if (m.type === 'ranking') {
+        const r = await loadRank();
+        return reply({ ranking: r.slice(0, Math.min(100, Math.max(1, Number(m.limit) || 20))).map((s) => ({ username: s.profiles ? s.profiles.username : '?', score: Number(s.score) })) });
+      }
+      if (m.type === 'score') {
+        const s = Number(m.score);
+        if (!Number.isFinite(s) || s < 0) return reply({ error: 'Pontuação inválida.' });
+        if (!state.me) { toast('Entre na sua conta para entrar no ranking.'); return reply({ error: 'Não está logado.' }); }
+        if (Date.now() - last < 1000) return reply({ error: 'Muitos envios seguidos.' });
+        last = Date.now();
+        const { data, error: er } = await sb.rpc('submit_score', { p_project: p.id, p_score: s });
+        if (er) throw er;
+        return reply({ best: Number(data) });
+      }
+    } catch (err) { reply({ error: friendly(err) }); }
+  };
+  addEventListener('message', onMsg);
+  cleanup = () => removeEventListener('message', onMsg);
 
   const fork = () => openEditor({ ...p, title: p.title + ' (fork)', description: 'Fork de ' + p.title + '. ' + p.description }, p.id);
   const remove = async () => {
@@ -383,6 +420,7 @@ async function showMod(my) {
 /* ---------- Rotas ---------- */
 async function route() {
   const my = ++nav;
+  if (cleanup) { cleanup(); cleanup = null; }
   window.scrollTo(0, 0);
   document.body.classList.remove('imm');
   document.title = 'Bancada';
