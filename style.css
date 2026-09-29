@@ -85,3 +85,17 @@ label input,label select,label textarea{font:inherit;font-weight:400;padding:.55
 #toast{position:fixed;left:50%;bottom:1.25rem;transform:translate(-50%,200%);background:var(--ink);color:var(--bg);padding:.65rem 1.1rem;border-radius:99px;font-weight:600;transition:transform .2s;z-index:20;max-width:90vw}
 #toast.show{transform:translate(-50%,0)}
 @media (prefers-reduced-motion:reduce){#toast,.card{transition:none}}
+
+/* Documentação */
+.docs{display:grid;grid-template-columns:14rem 1fr;gap:2rem;align-items:start}
+.toc{display:flex;flex-direction:column;gap:.25rem;position:sticky;top:5rem}
+.toc h2{margin:0 0 .5rem;font-size:1rem}
+.toc a{padding:.4rem .7rem;border-radius:8px;text-decoration:none;font-weight:600;color:var(--muted)}
+.toc a[aria-current=true]{background:var(--ink);color:var(--bg)}
+.docs article{min-width:0;max-width:44rem}
+.docs h1{margin-top:0}
+.docs code{font-family:var(--mono);font-size:.85em;background:var(--line);padding:.05rem .35rem;border-radius:4px}
+.codeblock{position:relative;margin:1rem 0}
+.codeblock pre{margin:0;padding:1rem;background:#0d141b;color:#d5e2ee;border-radius:var(--r);overflow:auto;font:.8rem/1.5 var(--mono);white-space:pre-wrap}
+.codeblock .btn{position:absolute;top:.5rem;right:.5rem;font-size:.75rem;padding:.2rem .6rem;background:var(--paper)}
+@media (max-width:700px){.docs{grid-template-columns:1fr}.toc{position:static;flex-direction:row;flex-wrap:wrap}}
