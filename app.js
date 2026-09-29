@@ -5,9 +5,20 @@ const CATS = ['Utilitários', 'Jogos', 'Produtividade', 'Design e arte', 'Educa�
 const MAX_CODE = 400000;
 // Edite aqui as novidades do site (mais recente primeiro)
 const NEWS = [
-  { d: '2026-09-29', t: 'Perfis, forks e moderação', b: ['Agora cada usuário tem perfil.', 'Todo jogo tem página própria com forks.', 'O jogo abre em tela cheia.'] }
-];
-const ABOUT = 'A Bancada é a vitrine de apps e jogos em HTML da turma. Todo mundo pode jogar e ler o código; só o autor (ou a moderação) altera um projeto. Quer melhorar o jogo de alguém? Crie um fork.';
+  { d: '2026-09-29', t: 'Perfis, forks e moderação', b: [
+    'Agora cada usuário tem perfil.',
+    'Todo jogo tem página própria com forks.',
+    'Segurança contra scripts maliciosos.',
+    'Layout refeito totalmente do zero.',
+    'Opção de criar forks sobre jogos já existentes.',
+    'Opção de jogar em tela cheia.',
+    'Aba de [Documentação](#/docs).',
+    'Aba de [Sobre nós](#/sobre).',
+    'Moderação ativa.',
+    'Suporte a records e rankings. (veja a [Documentação](#/docs) para saber como implementar)'
+  ] }
+];;
+const ABOUT = 'A Bancada é a vitrine de apps e jogos em HTML feitos com i.a. Todo mundo pode jogar e ler o código; mas somente o autor (ou a moderação) podedm alterar um projeto. Quer melhorar o jogo de alguém? Crie um fork!';
 const CFG = window.CONFIG || {};
 const configured = CFG.SUPABASE_URL && !CFG.SUPABASE_URL.startsWith('COLE_') && CFG.SUPABASE_ANON_KEY && !CFG.SUPABASE_ANON_KEY.startsWith('COLE_');
 const sb = configured ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
