@@ -39,6 +39,7 @@ function friendly(err) {
   if (/rate limit|too many/i.test(m)) return 'Muitas tentativas. Aguarde alguns minutos.';
   if (/jwt|not authenticated/i.test(m)) return 'Sua sessão expirou. Entre de novo.';
   if (/failed to fetch|network/i.test(m)) return 'Sem conexão com o servidor. Tente de novo.';
+  if (/permission denied|row-level security/i.test(m)) return 'O banco recusou a operação por falta de permissão. Rode o fix.sql no Supabase.';
   if (/check constraint|violates/i.test(m)) return 'Algum campo está fora do limite permitido.';
   return m || 'Algo deu errado. Tente de novo.';
 }
@@ -47,7 +48,20 @@ const isAuthErr = (err) => err && (err.status === 401 || /jwt|not authenticated/
 /* ---------- Sessão ---------- */
 async function loadMe(session) {
   if (!session) { state.me = null; return; }
-  const { data } = await sb.from('profiles').select('id, username').eq('id', session.user.id).maybeSingle();
+  const uid = session.user.id;
+  const get = () => sb.from('profiles').select('id, username').eq('id', uid).maybeSingle();
+  let { data, error } = await get();
+  if (error) throw error;
+  if (!data) {
+    // Perfil ainda não existe (o gatilho do banco pode não ter rodado): cria a partir do nome escolhido no cadastro
+    const username = session.user.user_metadata && session.user.user_metadata.username;
+    if (username) {
+      const ins = await sb.from('profiles').insert({ id: uid, username });
+      if (ins.error && ins.error.code !== '23505') throw ins.error;
+      ({ data, error } = await get());
+      if (error) throw error;
+    }
+  }
   state.me = data || null;
 }
 
@@ -302,7 +316,7 @@ window.addEventListener('hashchange', route);
     return;
   }
   const { data } = await sb.auth.getSession();
-  await loadMe(data.session);
+  try { await loadMe(data.session); } catch (err) { toast(friendly(err)); }
   renderSession();
   sb.auth.onAuthStateChange((event, session) => {
     // Só reage a saída/renovação; login e cadastro já são tratados no formulário
