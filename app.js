@@ -263,7 +263,8 @@ async function showHome(my) {
       h('p', {}, 'Apps e jogos em HTML feitos pela turma. Clique e jogue em tela cheia.'),
       h('div', { class: 'row' },
         h('a', { class: 'btn solid', href: '#/novidades' }, "What's new"),
-        h('a', { class: 'btn', href: '#/sobre' }, 'Sobre nós'))),
+        h('a', { class: 'btn', href: '#/sobre' }, 'Sobre nós'),
+        h('a', { class: 'btn', href: '#/docs' }, 'Documentação'))),
     h('div', { class: 'tools' }, h('input', {
       type: 'search', placeholder: 'Buscar por título, autor ou descrição', 'aria-label': 'Buscar', value: state.q,
       oninput: (e) => { state.q = e.target.value; draw(); }
@@ -417,6 +418,88 @@ async function showMod(my) {
       h('td', {}, userActions(u, refresh))))))));
 }
 
+/* ---------- Documentação ---------- */
+// Para adicionar conteúdo, crie outra seção aqui. Blocos: ['p', texto] ['h3', texto] ['ul', [itens]] ['code', código].
+// Use `crases` dentro dos textos para destacar código.
+const DOCS = [
+  { id: 'ranking', title: 'Ranking e pontuação', blocks: [
+    ['p', "Na Bancada o jogo roda isolado por segurança, então o `localStorage` não guarda nada de forma permanente. Para o ranking valer para todo mundo, use o objeto `Bancada`, que o site cria sozinho dentro do seu jogo. Não precisa instalar nem importar nada."],
+    ['h3', 'As 3 funções'],
+    ['ul', [
+      "`await Bancada.getUser()`: devolve o nome de quem está jogando, ou `null` se não estiver logado.",
+      "`await Bancada.submitScore(pontos)`: envia a pontuação e devolve a melhor pontuação dessa pessoa.",
+      "`await Bancada.getRanking(20)`: devolve o top 20 como `[{username, score}]`, do maior para o menor."]],
+    ['h3', 'Exemplo'],
+    ['code', `const online = typeof Bancada !== 'undefined';   // false se abrir o arquivo fora da Bancada
+
+// 1) Quando a partida terminar, envie a pontuação
+async function fimDeJogo(pontos) {
+  if (online) {
+    try {
+      const nome = await Bancada.getUser();
+      if (!nome) aviso('Entre na sua conta para entrar no ranking.');
+      else await Bancada.submitScore(pontos);
+    } catch (e) { console.warn(e.message); }
+  }
+  await desenharRanking();
+}
+
+// 2) Para mostrar o ranking
+async function desenharRanking() {
+  const lista = online ? await Bancada.getRanking(10) : [];
+  // desenhe com textContent (nunca innerHTML)
+  // lista[0].username, lista[0].score ...
+}`],
+    ['h3', 'Regras'],
+    ['ul', [
+      "Só entra no ranking quem está logado.",
+      "A pontuação é um número maior ou igual a 0, e o maior valor ganha. Cada jogador guarda só a melhor.",
+      "Envie no fim da partida, não a cada ponto. O limite é 1 envio por segundo.",
+      "O ranking é por jogo. Um fork começa com o ranking vazio.",
+      "Só funciona dentro da Bancada. Fora dela o `Bancada` não existe, por isso a checagem `online`.",
+      "Ao mostrar nomes de jogadores, use `textContent`, nunca `innerHTML`."]],
+    ['h3', 'Peça para a sua IA'],
+    ['p', "Se você faz o jogo com ajuda de uma IA, cole este pedido junto com o código:"],
+    ['code', `Ajuste este jogo para usar o ranking online da Bancada. Apague o ranking em localStorage. Use typeof Bancada !== 'undefined' para checar se está na Bancada. No fim da partida, chame await Bancada.submitScore(pontos), só se await Bancada.getUser() não for null. Para mostrar o ranking, use await Bancada.getRanking(10), que devolve [{username, score}] do maior para o menor. Desenhe os nomes com textContent, nunca innerHTML.`]
+  ] },
+  { id: 'limites', title: 'O que o jogo pode fazer', blocks: [
+    ['p', "Todo jogo roda num quadro isolado (sandbox). Ele não enxerga sua conta nem a página da Bancada."],
+    ['h3', 'Funciona'],
+    ['ul', ["Teclado, mouse, toque, gamepad, som e tela cheia.", "Travar o mouse (pointer lock), `alert` e formulários.", "Bibliotecas de CDN via `<script src>`, mas o mais seguro é deixar tudo dentro do arquivo."]],
+    ['h3', 'Não funciona'],
+    ['ul', ["`localStorage`, `sessionStorage` e cookies (use o ranking da Bancada para guardar pontuação).", "Abrir popups, baixar arquivos ou redirecionar a página do site."]],
+    ['h3', 'Limites'],
+    ['ul', ["O jogo é um único arquivo HTML, com CSS e JS dentro, de até 400 mil caracteres."]]
+  ] },
+  { id: 'forks', title: 'Publicar e fazer forks', blocks: [
+    ['ul', [
+      "Para publicar: clique em Novo projeto, cole o código e escolha a categoria.",
+      "Para melhorar o jogo de outra pessoa: abra a página do jogo e clique em Criar fork. O código é copiado e vira um projeto seu.",
+      "Os forks aparecem na página do jogo original e no filtro Forks da página inicial.",
+      "Só o autor e a moderação podem editar ou excluir um projeto."]]
+  ] }
+];
+
+// `texto` entre crases vira <code>; tudo entra como texto puro
+const rich = (t) => t.split('`').map((s, i) => (i % 2 ? h('code', {}, s) : s));
+
+function docBlock([type, v]) {
+  if (type === 'p') return h('p', {}, rich(v));
+  if (type === 'h3') return h('h3', {}, v);
+  if (type === 'ul') return h('ul', {}, v.map((i) => h('li', {}, rich(i))));
+  const copy = async () => { try { await navigator.clipboard.writeText(v); toast('Copiado.'); } catch { toast('Não foi possível copiar.'); } };
+  return h('div', { class: 'codeblock' }, h('button', { class: 'btn', onclick: copy }, 'Copiar'), h('pre', {}, v));
+}
+
+function showDocs(id) {
+  const sec = DOCS.find((s) => s.id === id) || DOCS[0];
+  document.title = sec.title + ' – Documentação – Bancada';
+  $('#view').replaceChildren(h('div', { class: 'docs' },
+    h('nav', { class: 'toc', 'aria-label': 'Seções da documentação' }, h('h2', {}, 'Documentação'),
+      DOCS.map((s) => h('a', { href: '#/docs/' + s.id, 'aria-current': String(s === sec) }, s.title))),
+    h('article', {}, h('h1', {}, sec.title), sec.blocks.map(docBlock))));
+}
+
 /* ---------- Rotas ---------- */
 async function route() {
   const my = ++nav;
@@ -430,6 +513,7 @@ async function route() {
     if (page === 'p' && /^\d+$/.test(arg || '')) await showProject(arg, my);
     else if (page === 'u' && arg) await showProfile(decodeURIComponent(arg), my);
     else if (page === 'mod') await showMod(my);
+    else if (page === 'docs') showDocs(arg);
     else if (page === 'novidades') showNews();
     else if (page === 'sobre') showAbout();
     else await showHome(my);
