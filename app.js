@@ -488,10 +488,10 @@ async function desenharRanking() {
       "Para melhorar o jogo de outra pessoa: abra a página do jogo e clique em Criar fork. O código é copiado e vira um projeto seu.",
       "Os forks aparecem na página do jogo original e no filtro Forks da página inicial.",
       "Só o autor e a moderação podem editar ou excluir um projeto."]]
-  ] }
+  ] },
   
   { id: 'Importação', title: 'Jogos 3d, fisica, e motores de renderização', blocks: [
-  ['h3', "Créditos"]
+  ['h3', "Créditos"],
   ['p', "Graças ao [@Davi](https://supremoshirra.github.io/agregador-fod-o/#/u/Dave007), um membro valioso de nossa comunidade, foi possivel descobrir ser possivel a criação de jogos 3d por meio de importação de bibliotecas, e por este feito, o creditamos, parabéns [@Davi](https://supremoshirra.github.io/agregador-fod-o/#/u/Dave007)!"]
   ['h3', "O que é a importação de bibliotecas"]
   ['p', "Pense no seu projeto como uma construção de LEGO. Você monta o seu LEGO e usa todas as peças, porém sente que não está como idealizou. Você quer uma peça metálica, redonda e pesada, e, para ficar como quer, decide pedir essa peça emprestada a um amigo. Após colocar a peça, você finalmente sente que sua construção está completa. Mas acabou a brincadeira e aquela peça é muito pesada para levá-la por aí, então você decide devolvê-la ao seu amigo."]
@@ -517,8 +517,8 @@ async function desenharRanking() {
   </script>
 
 </body>
-</html>`]
-  ['ul' ["para listas"]]
+</html>`],
+  ['ul', ["para listas"]],
   ] }
 ];
 
