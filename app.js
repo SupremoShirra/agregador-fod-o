@@ -489,6 +489,37 @@ async function desenharRanking() {
       "Os forks aparecem na página do jogo original e no filtro Forks da página inicial.",
       "Só o autor e a moderação podem editar ou excluir um projeto."]]
   ] }
+  
+  { id: 'Importação', title: 'Jogos 3d, fisica, e motores de renderização', blocks: [
+  ['h3', "Créditos"]
+  ['p', "Graças ao [@Davi](https://supremoshirra.github.io/agregador-fod-o/#/u/Dave007), um membro valioso de nossa comunidade, foi possivel descobrir ser possivel a criação de jogos 3d por meio de importação de bibliotecas, e por este feito, o creditamos, parabéns [@Davi](https://supremoshirra.github.io/agregador-fod-o/#/u/Dave007)!"]
+  ['h3', "O que é a importação de bibliotecas"]
+  ['p', "Pense no seu projeto como uma construção de LEGO. Você monta o seu LEGO e usa todas as peças, porém sente que não está como idealizou. Você quer uma peça metálica, redonda e pesada, e, para ficar como quer, decide pedir essa peça emprestada a um amigo. Após colocar a peça, você finalmente sente que sua construção está completa. Mas acabou a brincadeira e aquela peça é muito pesada para levá-la por aí, então você decide devolvê-la ao seu amigo."]
+  ['p', "Isto é a importação de bibliotecas. Para não termos que implementar várias bibliotecas ao site e pesar a experiência do usuário ao rodar qualquer jogo, até os que não são 3D, recomendamos que você importe as bibliotecas que usará em seu jogo."]
+  ['p', "Para importar uma biblioteca para o seu jogo, você usará a tag `<script>` no cabeçalho `<head>` do seu HTML, apontando o parâmetro `src` para o link da biblioteca na CDN (como a [Cloudflare cdnjs](https://cdnjs.com/libraries))
+  ['h3', "Veja abaixo o exemplo de importação da [Three.js](https://cdnjs.com/libraries/three.js)"]
+  ['code', `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Meu Jogo 3D</title>
+
+  <!-- Aqui é onde a mágica acontece: importando a biblioteca Three.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <script>
+    // A partir deste ponto, o Three.js já está carregado!
+    // Você já pode usar todos os comandos dele, como criar cenas, câmeras e objetos 3D.
+    const cena = new THREE.Scene();
+    console.log("Three.js pronto para uso!", cena);
+  </script>
+
+</body>
+</html>`]
+  ['ul' ["para listas"]]
+  ] }
 ];
 
 // `texto` vira <code>; [texto](#/docs) ou [texto](https://...) vira link; tudo entra como texto puro
