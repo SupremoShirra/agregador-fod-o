@@ -517,8 +517,9 @@ async function desenharRanking() {
   </script>
 
 </body>
-</html>`]
-  ['ul', ["para listas"]],
+</html>`],
+    
+  ['ul', ["para listas"]]
   ] }
 ];
 
