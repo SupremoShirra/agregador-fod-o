@@ -490,7 +490,7 @@ async function desenharRanking() {
       "Só o autor e a moderação podem editar ou excluir um projeto."]]
   ] },
   
-  { id: 'Importação', title: 'Jogos 3d, fisica, e motores de renderização', blocks: [
+  { id: 'Importacao', title: 'Jogos 3d, fisica, e motores de renderização', blocks: [
   ['h3', "Créditos"],
   ['p', "Graças ao [@Davi](https://supremoshirra.github.io/agregador-fod-o/#/u/Dave007), um membro valioso de nossa comunidade, foi possivel descobrir ser possivel a criação de jogos 3d por meio de importação de bibliotecas, e por este feito, o creditamos, parabéns [@Davi](https://supremoshirra.github.io/agregador-fod-o/#/u/Dave007)!"],
   ['h3', "O que é a importação de bibliotecas"],
