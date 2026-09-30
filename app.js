@@ -521,12 +521,12 @@ async function desenharRanking() {
 
 ['h3', "Bibliotecas Interessantes para Jogos e ferramentas"],
     
-  ['ul', ["**Motores 3D:** [Three.js](https://cdnjs.com/libraries/three.js) (Para cenários e objetos mais simples.) & [Babylon.js](https://cdnjs.com/libraries/babylonjs) (Para projetos mais ambiciosos e avançados.)",
-          "**Motores 2d:** [Phaser](https://cdnjs.com/libraries/phaser) (Motor Renderizador 2d bem completo, com suporte a sprites, mapa de tiles e fisica simples) & [PixiJs](https://cdnjs.com/libraries/pixi.js) (Renderizador 2d ultra-rápido, para maxima performance.)",
-          "**Fisica 2d & 3d:** [Matter.js](https://cdnjs.com/libraries/matter-js) (Fisica 2D para objetos, gravidade, colisões, RigidBody) & [Cannon.js](https://cdnjs.com/libraries/cannon.js) (Fisica de objetos, RigidBody, colisões.)",
-          "**Áudio:** [Howler.js](https://cdnjs.com/libraries/howler) (Reprodutor de áudio.) & [Tone.js](https://cdnjs.com/libraries/tone) (Sintetizador de áudio, cria batidas e sons.)",
-          "**Interface & Ferramentas:** [SweetAlert2](https://cdnjs.com/libraries/limonte-sweetalert2) (Pop-ups e alertas personalizaveis.) & [Chart.js](https://cdnjs.com/libraries/Chart.js) (Gráficos interativos como pizza, barras e linhas, bom para dashboard e painéis.)",
-          "**Animações:** [GSAP](https://cdnjs.com/libraries/gsap) (Animações suaves para menus, interfaces e jogos.) & [Anime.js](https://cdnjs.com/libraries/animejs) (Animações leves e basicas.)"
+  ['ul', ["<b>Motores 3D:</b> [Three.js](https://cdnjs.com/libraries/three.js) (Para cenários e objetos mais simples.) & [Babylon.js](https://cdnjs.com/libraries/babylonjs) (Para projetos mais ambiciosos e avançados.)",
+          "<b>Motores 2d:</b> [Phaser](https://cdnjs.com/libraries/phaser) (Motor Renderizador 2d bem completo, com suporte a sprites, mapa de tiles e fisica simples) & [PixiJs](https://cdnjs.com/libraries/pixi.js) (Renderizador 2d ultra-rápido, para maxima performance.)",
+          "<b>Fisica 2d & 3d:</b> [Matter.js](https://cdnjs.com/libraries/matter-js) (Fisica 2D para objetos, gravidade, colisões, RigidBody) & [Cannon.js](https://cdnjs.com/libraries/cannon.js) (Fisica de objetos, RigidBody, colisões.)",
+          "<b>Áudio:</b> [Howler.js](https://cdnjs.com/libraries/howler) (Reprodutor de áudio.) & [Tone.js](https://cdnjs.com/libraries/tone) (Sintetizador de áudio, cria batidas e sons.)",
+          "<b>Interface & Ferramentas:</b> [SweetAlert2](https://cdnjs.com/libraries/limonte-sweetalert2) (Pop-ups e alertas personalizaveis.) & [Chart.js](https://cdnjs.com/libraries/Chart.js) (Gráficos interativos como pizza, barras e linhas, bom para dashboard e painéis.)",
+          "<b>Animações:</b> [GSAP](https://cdnjs.com/libraries/gsap) (Animações suaves para menus, interfaces e jogos.) & [Anime.js](https://cdnjs.com/libraries/animejs) (Animações leves e basicas.)"
           ]]
   ] }
 ];
