@@ -12,13 +12,8 @@ a{color:inherit}
 .nav a:hover{color:var(--ink)}
 .session{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 main{max-width:70rem;margin:0 auto;padding:clamp(1rem,4vw,2rem)}
-.btn{font:inherit;font-size:.9rem;font-weight:600;padding:.5rem .9rem;border:1.5px solid var(--ink);background:transparent;color:var(--ink);border-radius:99px;cursor:pointer;text-decoration:none;display:inline-block;transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;}
-.btn:hover {
-  background: #transparent;
-  color: #fff;
-  border-color: #FF5C00;
-  box-shadow: 0 0 15px #FF5C00, 0 0 30px #FF5C00;
-}}
+.btn{font:inherit;font-size:.9rem;font-weight:600;padding:.5rem .9rem;border:1.5px solid var(--ink);background:transparent;color:var(--ink);border-radius:99px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn:hover{background:var(--ink);color:var(--bg)}
 .btn.solid{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn.solid:hover{filter:brightness(1.1)}
 .btn.ghost{border-color:transparent}
@@ -104,3 +99,16 @@ label input,label select,label textarea{font:inherit;font-weight:400;padding:.55
 .codeblock pre{margin:0;padding:1rem;background:#0d141b;color:#d5e2ee;border-radius:var(--r);overflow:auto;font:.8rem/1.5 var(--mono);white-space:pre-wrap}
 .codeblock .btn{position:absolute;top:.5rem;right:.5rem;font-size:.75rem;padding:.2rem .6rem;background:var(--paper)}
 @media (max-width:700px){.docs{grid-template-columns:1fr}.toc{position:static;flex-direction:row;flex-wrap:wrap}}
+
+/* Editor de projeto */
+.editor{max-width:52rem}
+.editor label{margin-bottom:1rem}
+.editor section{margin:1.5rem 0}
+.editor h2{font-size:1.1rem;margin:0 0 .5rem}
+.editor textarea{width:100%;resize:vertical}
+.error{white-space:pre-line}
+.drop{border:2px dashed var(--line);border-radius:var(--r);padding:1.25rem;text-align:center;color:var(--muted)}
+.filerow{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:.75rem 1rem;margin:.5rem 0;display:flex;flex-direction:column;gap:.35rem;font-size:.85rem}
+.filerow .ref{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.filerow code{font-family:var(--mono);word-break:break-all}
+.filerow .btn{font-size:.75rem;padding:.2rem .6rem;align-self:flex-start}
