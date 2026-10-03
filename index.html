@@ -7,7 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <link rel="icon" href="data:,">
   <title>Bancada</title>
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
   <header class="top">
@@ -38,24 +38,6 @@
         <span class="spacer"></span>
         <button type="button" class="btn ghost" data-close>Cancelar</button>
         <button type="submit" class="btn solid" id="authSubmit">Entrar</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="editDlg">
-    <form id="editForm">
-      <h2 id="editTitle">Novo jogo</h2>
-      <label>Título <input name="title" required minlength="2" maxlength="80"></label>
-      <label>Categoria <select name="category" required></select></label>
-      <label>Descrição curta <textarea name="description" rows="2" required minlength="2" maxlength="300"></textarea></label>
-      <label>Código (HTML, CSS e JS em um arquivo só)
-        <textarea name="code" rows="12" required maxlength="400000" spellcheck="false" class="mono"></textarea>
-      </label>
-      <p id="editError" class="error" role="alert"></p>
-      <div class="row">
-        <span class="spacer"></span>
-        <button type="button" class="btn ghost" data-close>Cancelar</button>
-        <button type="submit" class="btn solid" id="editSubmit">Salvar</button>
       </div>
     </form>
   </dialog>
