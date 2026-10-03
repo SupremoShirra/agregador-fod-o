@@ -112,7 +112,27 @@ label input,label select,label textarea{font:inherit;font-weight:400;padding:.55
 .filerow .ref{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 .filerow code{font-family:var(--mono);word-break:break-all}
 .filerow .btn{font-size:.75rem;padding:.2rem .6rem;align-self:flex-start}
+/* ============================================================
+   TAMANHO DAS CAPAS NA TELA INICIAL — EDITE AQUI
+   Altere COVER_W/COVER_H se quiser mudar a proporção da capa.
+   O tamanho visual da capa é controlado principalmente por .cover.
+   ============================================================ */
+.cover{
+  display:block;
+  width:100%;
+  aspect-ratio:16/9; /* ← proporção da capa na tela inicial */
+  object-fit:cover;
+  border-radius:8px;
+  background:var(--line);
+  margin-bottom:.4rem;
+}
+
 /* Capas, fotos e denúncias */
-.cover{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;background:var(--line);margin-bottom:.4rem}
+
 img.avatar{object-fit:cover}
+.tag.private{background:#6b5ca5;color:#fff}
+.checkline{flex-direction:row;align-items:center;font-weight:600}
+.checkline input{width:auto;margin:0}
+.admin-project-options{padding:.75rem 1rem;border:1px solid var(--line);border-radius:var(--r);background:var(--bg)}
+.admin-project-options h2{margin:0 0 .5rem}
 .mini{width:1.5rem;height:1.5rem;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:.35rem}
