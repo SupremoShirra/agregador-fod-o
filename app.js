@@ -82,48 +82,17 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-function errorInfo(err) {
-  const e = err || {};
-  return {
-    message: e.message || e.error_description || String(e) || 'Erro desconhecido',
-    code: e.code || e.status || '',
-    details: e.details || '',
-    hint: e.hint || '',
-    name: e.name || '',
-    status: e.status || ''
-  };
-}
-function diagnostic(stage, err) {
-  const i = errorInfo(err);
-  const lines = [
-    'ETAPA: ' + stage,
-    'MENSAGEM: ' + i.message,
-    i.code ? 'CÓDIGO: ' + i.code : '',
-    i.status && String(i.status) !== String(i.code) ? 'STATUS: ' + i.status : '',
-    i.details ? 'DETALHES: ' + i.details : '',
-    i.hint ? 'DICA DO SUPABASE: ' + i.hint : ''
-  ].filter(Boolean);
-  return lines.join('\n');
-}
-function fail(stage, err) {
-  const e = new Error(diagnostic(stage, err));
-  e.original = err;
-  e.stage = stage;
-  e.code = err && err.code;
-  e.status = err && err.status;
-  return e;
-}
 function friendly(err) {
   const m = (err && err.message) || '';
-  if (m.startsWith('ETAPA: ')) return m;
   if (/invalid login credentials/i.test(m)) return 'Usuário ou senha incorretos.';
   if (/already registered|already been registered/i.test(m)) return 'Esse nome de usuário já existe.';
   if (/database error saving new user/i.test(m)) return 'Esse nome de usuário não pôde ser criado (já existe ou é inválido).';
   if (/rate limit|too many/i.test(m)) return 'Muitas tentativas. Aguarde alguns minutos.';
   if (/jwt|not authenticated/i.test(m)) return 'Sua sessão expirou. Entre de novo.';
   if (/failed to fetch|network/i.test(m)) return 'Sem conexão com o servidor. Tente de novo.';
-  if (/exceeded|too large|payload/i.test(m)) return 'Arquivo grande demais.\n\n' + m;
-  if (/check constraint|violates/i.test(m)) return 'Algum campo está fora do limite permitido.\n\n' + m;
+  if (/permission denied|row-level security/i.test(m)) return 'Sem permissão. Rode o schema-bancada-completo.sql e entre novamente na sua conta.';
+  if (/exceeded|too large|payload/i.test(m)) return 'Arquivo grande demais.';
+  if (/check constraint|violates/i.test(m)) return 'Algum campo está fora do limite permitido.';
   return m || 'Algo deu errado. Tente de novo.';
 }
 const isAuthErr = (e) => e && (e.status === 401 || /jwt|not authenticated/i.test(e.message || ''));
@@ -134,7 +103,7 @@ async function loadList(force) {
   const { data, error } = await sb.from('projects')
     .select('id, title, description, category, updated_at, user_id, forked_from, cover_at, is_public, profiles!user_id(username)')
     .order('updated_at', { ascending: false });
-  if (error) throw fail('CARREGAR LISTA DE PROJETOS — SELECT projects', error);
+  if (error) throw error;
   return (state.list = data.map((p) => ({ ...p, author: p.profiles ? p.profiles.username : '?' })));
 }
 
@@ -143,12 +112,12 @@ async function loadMe(session) {
   const uid = session.user.id;
   const get = () => sb.from('profiles').select('id, username, role, banned, avatar_at').eq('id', uid).maybeSingle();
   let { data, error } = await get();
-  if (error) throw fail('CARREGAR PERFIL — SELECT profiles', error);
+  if (error) throw error;
   if (!data) {
     const username = session.user.user_metadata && session.user.user_metadata.username;
     if (username) {
       const ins = await sb.from('profiles').insert({ id: uid, username });
-      if (ins.error && ins.error.code !== '23505') throw fail('CRIAR PERFIL — INSERT profiles', ins.error);
+      if (ins.error && ins.error.code !== '23505') throw ins.error;
       ({ data, error } = await get());
       if (error) throw error;
     }
@@ -297,7 +266,7 @@ async function resizeImage(file, w, hh) {
 }
 async function uploadImage(path, blob) {
   const { error } = await sb.storage.from(IMAGE_BUCKET).upload(path + '.webp', blob, { contentType: 'image/webp', upsert: true });
-  if (error) throw fail('UPLOAD CAPA/AVATAR — Storage bucket ' + IMAGE_BUCKET + ' / ' + path + '.webp', error);
+  if (error) throw error;
 }
 
 async function report(kind, id) {
@@ -305,7 +274,7 @@ async function report(kind, id) {
   const reason = (prompt('Descreva o motivo da denúncia (mínimo 3 caracteres):') || '').trim().slice(0, 500);
   if (reason.length < 3) return;
   const { error } = await sb.from('reports').insert({ [kind === 'project' ? 'project_id' : 'profile_id']: id, reason });
-  toast(error ? (error.code === '23505' ? 'Você já denunciou isto.' : friendly(fail('ENVIAR DENÚNCIA — INSERT reports', error))) : 'Denúncia enviada. Obrigado!');
+  toast(error ? (error.code === '23505' ? 'Você já denunciou isto.' : friendly(error)) : 'Denúncia enviada. Obrigado!');
 }
 
 // Foto e denúncia no perfil de u
@@ -864,7 +833,7 @@ async function showEditor(mode, arg, my) {
     return { key, label, max, col, ta, err: h('p', { class: 'error' }) };
   });
   const submit = h('button', { type: 'submit', class: 'btn solid' }, isEdit ? 'Salvar alterações' : 'Criar projeto');
-  const status = h('pre', { class: 'status error-details' });
+  const status = h('p', { class: 'hint' });
 
   function problems() {
     let bad = false;
@@ -948,8 +917,8 @@ async function showEditor(mode, arg, my) {
     try {
       if (isEdit) {
         const { data, error } = await sb.from('projects').update(body).eq('id', id).select('id');
-        if (error) throw fail('ATUALIZAR PROJETO — UPDATE projects', error);
-        if (!data.length) throw fail('ATUALIZAR PROJETO — UPDATE projects (nenhuma linha retornada)', new Error('O Supabase não retornou nenhuma linha após o UPDATE. Verifique a política RLS, o user_id e a sessão atual.'));
+        if (error) throw error;
+        if (!data.length) throw new Error('Sem permissão para alterar este projeto.');
       } else {
         if (forkOf) {
           body.forked_from = forkOf;
@@ -957,7 +926,7 @@ async function showEditor(mode, arg, my) {
           if (src && src.is_public === false && !publicCheck.checked) body.is_public = false;
         }
         const { data, error } = await sb.from('projects').insert(body).select('id').single();
-        if (error) throw fail('CRIAR PROJETO — INSERT projects', error);
+        if (error) throw error;
         id = data.id;
       }
       const fresh = files.filter((x) => x.file), copies = isEdit ? [] : files.filter((x) => x.old);
@@ -965,35 +934,30 @@ async function showEditor(mode, arg, my) {
       for (const x of fresh) {
         status.textContent = 'Enviando arquivo ' + (++n) + ' de ' + fresh.length + '…';
         const { error } = await B.upload(id + '/' + x.path, x.file, { contentType: x.mime, upsert: true });
-        if (error) throw fail('UPLOAD ASSET — Storage bucket ' + STORAGE_BUCKET + ' / ' + id + '/' + x.path, error);
+        if (error) throw error;
         uploaded.push(id + '/' + x.path);
       }
       for (const x of copies) {   // fork: copia os assets do original
         status.textContent = 'Copiando ' + x.path + '…';
         const { error } = await B.copy(src.id + '/' + x.path, id + '/' + x.path);
-        if (error) throw fail('COPIAR ASSET DE FORK — Storage bucket ' + STORAGE_BUCKET + ' / ' + src.id + '/' + x.path + ' → ' + id + '/' + x.path, error);
+        if (error) throw error;
         uploaded.push(id + '/' + x.path);
       }
       const rows = [...fresh, ...copies].map((x) => ({ project_id: id, path: x.path, kind: x.kind, size: x.size }));
-      if (rows.length) { const { error } = await sb.from('assets').insert(rows); if (error) throw fail('REGISTRAR ASSETS — INSERT assets', error); }
+      if (rows.length) { const { error } = await sb.from('assets').insert(rows); if (error) throw error; }
       if (removed.length) {
         await sb.from('assets').delete().eq('project_id', id).in('path', removed);
         await B.remove(removed.map((p) => id + '/' + p));
       }
       // cópias do código no Storage: servem só para ter uma URL de cada arquivo
       for (const [name, col, mime] of CODE_FILES) {
-        if (body[col]) {
-          const { error } = await B.upload(id + '/' + name, new Blob([body[col]], { type: mime }), { contentType: mime, upsert: true });
-          if (error) throw fail('UPLOAD CÓDIGO — Storage bucket ' + STORAGE_BUCKET + ' / ' + id + '/' + name, error);
-        } else if (isEdit) {
-          const { error } = await B.remove([id + '/' + name]);
-          if (error) throw fail('REMOVER CÓDIGO — Storage bucket ' + STORAGE_BUCKET + ' / ' + id + '/' + name, error);
-        }
+        if (body[col]) await B.upload(id + '/' + name, new Blob([body[col]], { type: mime }), { contentType: mime, upsert: true });
+        else if (isEdit) await B.remove([id + '/' + name]);
       }
       if (coverBlob) {
         await uploadImage('capas/' + id, coverBlob);
         const { error } = await sb.from('projects').update({ cover_at: new Date().toISOString() }).eq('id', id);
-        if (error) throw fail('ATUALIZAR cover_at — UPDATE projects', error);
+        if (error) throw error;
       } else if (coverRemove) {
         await sb.from('projects').update({ cover_at: null }).eq('id', id);
         await sb.storage.from(IMAGE_BUCKET).remove(['capas/' + id + '.webp']);
@@ -1035,7 +999,7 @@ async function route() {
     else if (page === 'sobre') showAbout();
     else await showHome(my);
   } catch (err) {
-    if (my === nav) $('#view').replaceChildren(h('pre', { class: 'error-details' }, friendly(err)));
+    if (my === nav) $('#view').replaceChildren(h('p', { class: 'empty' }, friendly(err)));
   }
 }
 window.addEventListener('hashchange', route);
