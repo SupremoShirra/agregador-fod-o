@@ -136,15 +136,3 @@ img.avatar{object-fit:cover}
 .admin-project-options{padding:.75rem 1rem;border:1px solid var(--line);border-radius:var(--r);background:var(--bg)}
 .admin-project-options h2{margin:0 0 .5rem}
 .mini{width:1.5rem;height:1.5rem;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:.35rem}
-
-
-/* Diagnóstico detalhado de erros do Supabase. Mantém quebras de linha e facilita copiar o erro real. */
-.error-details {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  text-align: left;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: .82rem;
-  line-height: 1.5;
-  max-width: 100%;
-}
