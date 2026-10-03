@@ -90,7 +90,7 @@ function friendly(err) {
   if (/rate limit|too many/i.test(m)) return 'Muitas tentativas. Aguarde alguns minutos.';
   if (/jwt|not authenticated/i.test(m)) return 'Sua sessão expirou. Entre de novo.';
   if (/failed to fetch|network/i.test(m)) return 'Sem conexão com o servidor. Tente de novo.';
-  if (/permission denied|row-level security/i.test(m)) return 'Sem permissão. Confira se você rodou o schema-v2.sql e se sua conta não está banida.';
+  if (/permission denied|row-level security/i.test(m)) return 'Sem permissão. Rode o schema-bancada-completo.sql e entre novamente na sua conta.';
   if (/exceeded|too large|payload/i.test(m)) return 'Arquivo grande demais.';
   if (/check constraint|violates/i.test(m)) return 'Algum campo está fora do limite permitido.';
   return m || 'Algo deu errado. Tente de novo.';
