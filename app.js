@@ -27,6 +27,11 @@ const DOWNLOAD = { MAX_MB: 30, EXT: ['mp3', 'wav', 'ogg', 'opus', 'aac', 'json',
 const ROOM_LIMITS = { MAX_MSG_CHARS: 4000, MIN_INTERVAL_MS: 40, MAX_ROOMS: 1 };   // 40 ms = no máximo 25 msg/s
 // Capas e fotos de perfil: o navegador reduz e converte para WebP antes de enviar (mude também o schema-v5.sql se mudar o limite)
 const IMAGE_BUCKET = 'imagens';
+// ============================================================
+// TAMANHO DA IMAGEM DAS CAPAS — EDITE AQUI
+// COVER_W / COVER_H = resolução final gravada da capa.
+// A aparência na tela inicial também é controlada por .cover no style.css.
+// ============================================================
 const IMAGE_LIMITS = { MAX_INPUT_MB: 2, COVER_W: 640, COVER_H: 360, AVATAR_PX: 256, QUALITY: 0.82 };
 const CODE_FILES = [['index.html', 'code', 'text/plain'], ['style.css', 'css', 'text/css'], ['script.js', 'js', 'text/javascript']];
 // Edite aqui as novidades do site (mais recente primeiro)
@@ -66,6 +71,8 @@ let nav = 0, toastTimer, cleanup = null;
 const fmtDate = (t) => new Date(t).toLocaleDateString('pt-BR');
 const emailOf = (u) => u.toLowerCase() + '@' + CFG.EMAIL_DOMAIN;
 const isStaff = () => !!state.me && !state.me.banned && ['owner', 'moderator'].includes(state.me.role);
+const canSeeProject = (p) => !!p && (p.is_public !== false || (state.me && !state.me.banned && (state.me.id === p.user_id || isStaff())));
+const privacyLabel = (p) => p.is_public === false ? 'Privado' : 'Público';
 
 function toast(msg) {
   const t = $('#toast');
@@ -94,7 +101,7 @@ const isAuthErr = (e) => e && (e.status === 401 || /jwt|not authenticated/i.test
 async function loadList(force) {
   if (state.list && !force) return state.list;
   const { data, error } = await sb.from('projects')
-    .select('id, title, description, category, updated_at, user_id, forked_from, cover_at, profiles!user_id(username)')
+    .select('id, title, description, category, updated_at, user_id, forked_from, cover_at, is_public, profiles!user_id(username)')
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return (state.list = data.map((p) => ({ ...p, author: p.profiles ? p.profiles.username : '?' })));
@@ -205,6 +212,7 @@ function card(p) {
     h('p', {}, p.description),
     h('div', { class: 'meta' },
       h('span', { class: 'tag' }, p.category),
+      p.is_public === false ? h('span', { class: 'tag private' }, 'Privado') : null,
       p.forked_from ? h('span', { class: 'tag fork' }, 'Fork') : null,
       userLink(p.author),
       h('span', {}, fmtDate(p.updated_at))));
@@ -353,13 +361,14 @@ async function showProfile(name, my) {
 
 async function showProject(id, my) {
   const [{ data: p, error }, list, { data: assets }] = await Promise.all([
-    sb.from('projects').select('id, title, description, category, code, css, js, updated_at, user_id, forked_from, cover_at, profiles!user_id(username)').eq('id', id).maybeSingle(),
+    sb.from('projects').select('id, title, description, category, code, css, js, updated_at, user_id, forked_from, cover_at, is_public, profiles!user_id(username)').eq('id', id).maybeSingle(),
     loadList(),
     sb.from('assets').select('path, kind, size').eq('project_id', id).order('path')
   ]);
   if (error) throw error;
   if (my !== nav) return;
-  if (!p) { $('#view').replaceChildren(h('a', { href: '#/' }, '← Início'), h('p', { class: 'empty' }, 'Projeto não encontrado.')); return; }
+  if (!p) { $('#view').replaceChildren(h('a', { href: '#/' }, '← Bancada'), h('p', { class: 'empty' }, 'Projeto não encontrado ou privado.')); return; }
+  if (!canSeeProject(p)) { $('#view').replaceChildren(h('a', { href: '#/' }, '← Bancada'), h('p', { class: 'empty' }, 'Este projeto é privado. Apenas o autor e a administração podem vê-lo.')); return; }
   const author = p.profiles ? p.profiles.username : '?';
   const projFiles = [...CODE_FILES.filter(([, col]) => p[col]).map(([path, col]) => ({ path, kind: 'codigo', size: new Blob([p[col]]).size })), ...(assets || [])];
   const canEdit = state.me && !state.me.banned && (state.me.id === p.user_id || isStaff());
@@ -484,6 +493,7 @@ async function showProject(id, my) {
       h('h1', {}, p.title),
       h('div', { class: 'meta' },
         h('span', { class: 'tag' }, p.category),
+        p.is_public === false ? h('span', { class: 'tag private' }, 'Privado') : null,
         parent ? h('span', { class: 'tag fork' }, 'Fork') : null,
         userLink(author),
         h('span', {}, 'atualizado em ' + fmtDate(p.updated_at)),
@@ -598,7 +608,7 @@ async function desenharRanking() {
       "Para publicar: clique em Novo projeto, cole o código e escolha a categoria.",
       "Para melhorar o jogo de outra pessoa: abra a página do jogo e clique em Criar fork. O código é copiado e vira um projeto seu.",
       "Os forks aparecem na página do jogo original e no filtro Forks da página inicial.",
-      "Só o autor e a moderação podem editar ou excluir um projeto."]]
+      "Só o autor e a moderação podem editar ou excluir um projeto.", "Projetos privados só aparecem para o autor e para a administração. A proteção precisa estar ativa no RLS do Supabase."]]
   ] }, 
   { id: 'importacao', title: 'Jogos 3d, fisica, e motores de renderização', blocks: [
     ['h3', "Créditos"],
@@ -777,7 +787,7 @@ async function showEditor(mode, arg, my) {
   let src = null, srcAssets = [];
   if (arg) {
     const [r, a] = await Promise.all([
-      sb.from('projects').select('id, title, description, category, code, css, js, user_id, cover_at').eq('id', arg).maybeSingle(),
+      sb.from('projects').select('id, title, description, category, code, css, js, user_id, forked_from, cover_at, is_public').eq('id', arg).maybeSingle(),
       sb.from('assets').select('path, kind, size').eq('project_id', arg)]);
     if (r.error) throw r.error;
     if (my !== nav) return;
@@ -795,6 +805,24 @@ async function showEditor(mode, arg, my) {
   const category = h('select', {}, CATS.map((c) => h('option', { value: c, selected: src && c === src.category }, c)));
   const description = h('textarea', { rows: '2', required: '', minlength: '2', maxlength: '300' });
   description.value = src ? ((forkOf ? 'Fork de ' + src.title + '. ' : '') + src.description).slice(0, 300) : '';
+
+  // Privacidade: falso = privado. A segurança real é feita pelas políticas RLS do Supabase.
+  const publicCheck = h('input', { type: 'checkbox' });
+  publicCheck.checked = src ? src.is_public !== false : true;
+
+  let authorSelect = null, authorHint = null;
+  if (isStaff()) {
+    authorSelect = h('select', {});
+    authorHint = h('p', { class: 'hint' }, 'Administradores podem registrar projetos históricos em nome de outro usuário.');
+    try {
+      const { data: authors, error: authorErr } = await sb.from('profiles').select('id, username').order('username');
+      if (authorErr) throw authorErr;
+      (authors || []).forEach((u) => authorSelect.append(h('option', { value: u.id }, '@' + u.username)));
+      authorSelect.value = src ? src.user_id : state.me.id;
+    } catch (err) {
+      authorHint.textContent = 'Não foi possível carregar os autores: ' + friendly(err);
+    }
+  }
 
   const fields = CODE_FIELDS.map(([key, label, max, accept, col]) => {
     const ta = h('textarea', { class: 'mono', rows: '10', spellcheck: 'false', 'aria-label': label, placeholder: 'Cole seu código ' + label + ' aqui ou arraste um arquivo ' + accept });
@@ -867,7 +895,10 @@ async function showEditor(mode, arg, my) {
     isEdit && src.cover_at ? h('button', { type: 'button', class: 'btn danger', onclick: () => { coverBlob = null; coverRemove = true; coverImg.hidden = true; } }, 'Remover capa') : null);
   const form = h('form', { class: 'editor' },
     h('h1', {}, isEdit ? 'Editar projeto' : forkOf ? 'Novo fork' : 'Novo projeto'),
-    h('label', {}, 'Nome do projeto', title), h('label', {}, 'Categoria', category), h('label', {}, 'Descrição curta', description), coverBox,
+    h('label', {}, 'Nome do projeto', title), h('label', {}, 'Categoria', category), h('label', {}, 'Descrição curta', description),
+    h('label', { class: 'checkline' }, publicCheck, ' Projeto público (desmarque para manter privado)'),
+    authorSelect ? h('section', { class: 'admin-project-options' }, h('h2', {}, 'Publicação administrativa'), h('label', {}, 'Autor exibido', authorSelect), authorHint) : null,
+    coverBox,
     h('section', {}, h('h2', {}, 'Código (opcional)'),
       h('p', { class: 'hint' }, 'Cole o código ou arraste o arquivo para o campo. Dentro do projeto, use só o nome: style.css, script.js, imagens/foto.webp.'),
       fields.map((f) => h('label', {}, f.label, f.ta, f.err))),
@@ -878,7 +909,8 @@ async function showEditor(mode, arg, my) {
     e.preventDefault();
     if (problems()) return;
     submit.disabled = true;
-    const body = { title: title.value.trim(), category: category.value, description: description.value.trim() };
+    const body = { title: title.value.trim(), category: category.value, description: description.value.trim(), is_public: !!publicCheck.checked };
+    if (authorSelect && isStaff()) body.user_id = authorSelect.value;
     for (const f of fields) body[f.col] = f.ta.value;
     let id = isEdit ? src.id : null;
     const uploaded = [];
@@ -888,7 +920,11 @@ async function showEditor(mode, arg, my) {
         if (error) throw error;
         if (!data.length) throw new Error('Sem permissão para alterar este projeto.');
       } else {
-        if (forkOf) body.forked_from = forkOf;
+        if (forkOf) {
+          body.forked_from = forkOf;
+          // Um fork de projeto privado nasce privado para não vazar o projeto-base.
+          if (src && src.is_public === false && !publicCheck.checked) body.is_public = false;
+        }
         const { data, error } = await sb.from('projects').insert(body).select('id').single();
         if (error) throw error;
         id = data.id;
