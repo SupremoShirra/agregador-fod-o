@@ -21,6 +21,13 @@ const KIND = { imagens: 'imagem', audio: 'audio', modelos: 'modelo' };
 // Onde ficam os arquivos: <bucket>/<id do projeto>/<caminho>. É também a base das referências relativas dos jogos.
 const projectBase = (id) => CFG.SUPABASE_URL + '/storage/v1/object/public/' + STORAGE_BUCKET + '/' + id + '/';
 const fileUrl = (id, path) => projectBase(id) + path;
+// Downloads pedidos pelo jogo (Bancada.download): o site pergunta ao jogador antes de baixar
+const DOWNLOAD = { MAX_MB: 30, EXT: ['mp3', 'wav', 'ogg', 'opus', 'aac', 'json', 'txt', 'png', 'webp', 'glb'] };
+// Salas online (Bancada.joinRoom): limites por jogador, para não estourar o plano gratuito do Supabase Realtime
+const ROOM_LIMITS = { MAX_MSG_CHARS: 4000, MIN_INTERVAL_MS: 40, MAX_ROOMS: 1 };   // 40 ms = no máximo 25 msg/s
+// Capas e fotos de perfil: o navegador reduz e converte para WebP antes de enviar (mude também o schema-v5.sql se mudar o limite)
+const IMAGE_BUCKET = 'imagens';
+const IMAGE_LIMITS = { MAX_INPUT_MB: 2, COVER_W: 640, COVER_H: 360, AVATAR_PX: 256, QUALITY: 0.82 };
 const CODE_FILES = [['index.html', 'code', 'text/plain'], ['style.css', 'css', 'text/css'], ['script.js', 'js', 'text/javascript']];
 // Edite aqui as novidades do site (mais recente primeiro)
 const NEWS = [
@@ -77,6 +84,7 @@ function friendly(err) {
   if (/jwt|not authenticated/i.test(m)) return 'Sua sessão expirou. Entre de novo.';
   if (/failed to fetch|network/i.test(m)) return 'Sem conexão com o servidor. Tente de novo.';
   if (/permission denied|row-level security/i.test(m)) return 'Sem permissão. Confira se você rodou o schema-v2.sql e se sua conta não está banida.';
+  if (/exceeded|too large|payload/i.test(m)) return 'Arquivo grande demais.';
   if (/check constraint|violates/i.test(m)) return 'Algum campo está fora do limite permitido.';
   return m || 'Algo deu errado. Tente de novo.';
 }
@@ -86,7 +94,7 @@ const isAuthErr = (e) => e && (e.status === 401 || /jwt|not authenticated/i.test
 async function loadList(force) {
   if (state.list && !force) return state.list;
   const { data, error } = await sb.from('projects')
-    .select('id, title, description, category, updated_at, user_id, forked_from, profiles!user_id(username)')
+    .select('id, title, description, category, updated_at, user_id, forked_from, cover_at, profiles!user_id(username)')
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return (state.list = data.map((p) => ({ ...p, author: p.profiles ? p.profiles.username : '?' })));
@@ -95,7 +103,7 @@ async function loadList(force) {
 async function loadMe(session) {
   if (!session) { state.me = null; return; }
   const uid = session.user.id;
-  const get = () => sb.from('profiles').select('id, username, role, banned').eq('id', uid).maybeSingle();
+  const get = () => sb.from('profiles').select('id, username, role, banned, avatar_at').eq('id', uid).maybeSingle();
   let { data, error } = await get();
   if (error) throw error;
   if (!data) {
@@ -117,7 +125,7 @@ function renderSession() {
   $('#modLink').hidden = !isStaff();
   if (state.me) {
     box.append(
-      h('a', { class: 'btn ghost', href: '#/u/' + encodeURIComponent(state.me.username) }, '@' + state.me.username),
+      h('a', { class: 'btn ghost', href: '#/u/' + encodeURIComponent(state.me.username) }, avatarUrl(state.me) ? h('img', { class: 'mini', src: avatarUrl(state.me), alt: '' }) : null, '@' + state.me.username),
       state.me.banned ? h('span', { class: 'tag ban' }, 'Conta banida') : h('a', { class: 'btn solid', href: '#/novo' }, 'Novo projeto'),
       h('button', { class: 'btn ghost', onclick: logout }, 'Sair'));
   } else {
@@ -192,6 +200,7 @@ const userLink = (name) => h('a', { href: '#/u/' + encodeURIComponent(name) }, '
 
 function card(p) {
   return h('li', { class: 'card' },
+    coverUrl(p) ? h('img', { class: 'cover', src: coverUrl(p), alt: '', loading: 'lazy', decoding: 'async', width: '640', height: '360' }) : null,
     h('h3', {}, h('a', { href: '#/p/' + p.id }, p.title)),
     h('p', {}, p.description),
     h('div', { class: 'meta' },
@@ -225,8 +234,66 @@ const roleTag = (u) => [
 
 /* ---------- SDK de ranking (injetado em todo jogo) ---------- */
 // O jogo fala com o site por postMessage; só o site (pai) conversa com o banco, usando o login do jogador.
-const SDK = `<script>(()=>{const p=new Map();let n=0;addEventListener('message',e=>{const m=e.data;if(e.source!==parent||!m||m.bancada!==1)return;const r=p.get(m.id);if(!r)return;p.delete(m.id);m.error?r.reject(new Error(m.error)):r.resolve(m)});const call=(type,d)=>new Promise((res,rej)=>{const id=++n;p.set(id,{resolve:res,reject:rej});parent.postMessage({bancada:1,id,type,...d},'*');setTimeout(()=>{if(p.delete(id))rej(new Error('Tempo esgotado'))},8000)});window.Bancada={submitScore:s=>call('score',{score:s}).then(r=>r.best),getRanking:n=>call('ranking',{limit:n}).then(r=>r.ranking),getUser:()=>call('user').then(r=>r.username)}})()<\/script>`;
+const SDK = `<script>(()=>{const p=new Map(),R=new Map();let n=0;addEventListener('message',e=>{const m=e.data;if(e.source!==parent||!m||m.bancada!==1)return;if(m.event){const r=R.get(m.room);if(!r)return;if(m.kind==='presence'){r.last=m.players;r.p.forEach(f=>f(m.players))}else r.m.forEach(f=>f(m.data,m.from));return}const r=p.get(m.id);if(!r)return;p.delete(m.id);m.error?r.reject(new Error(m.error)):r.resolve(m)});const call=(type,d,t=8000)=>new Promise((res,rej)=>{const id=++n;p.set(id,{resolve:res,reject:rej});parent.postMessage({bancada:1,id,type,...d},'*');setTimeout(()=>{if(p.delete(id))rej(new Error('Tempo esgotado'))},t)});window.Bancada={submitScore:s=>call('score',{score:s}).then(r=>r.best),getRanking:k=>call('ranking',{limit:k}).then(r=>r.ranking),getUser:()=>call('user').then(r=>r.username),download:(name,data)=>call('download',{name,data},120000).then(()=>true),joinRoom:async room=>{room=String(room).replace(/[^\\w-]/g,'').slice(0,40);const r=await call('join',{room},15000),o={m:[],p:[],last:null};R.set(room,o);return{id:r.me,name:r.name,send:d=>parent.postMessage({bancada:1,type:'send',room,data:d},'*'),onMessage:f=>o.m.push(f),onPresence:f=>{o.p.push(f);if(o.last)f(o.last)},leave:()=>{R.delete(room);parent.postMessage({bancada:1,type:'leave',room},'*')}}}}})()<\/script>`;
 const withSdk = (code, extra = '') => /<(?:head|html)[^>]*>/i.test(code) ? code.replace(/<(?:head|html)[^>]*>/i, (m) => m + extra + SDK) : extra + SDK + code;
+
+/* ---------- Imagens (capas e fotos) e denúncias ---------- */
+const imgUrl = (path, v) => CFG.SUPABASE_URL + '/storage/v1/object/public/' + IMAGE_BUCKET + '/' + path + '.webp?v=' + Date.parse(v);
+const coverUrl = (p) => (p.cover_at ? imgUrl('capas/' + p.id, p.cover_at) : null);
+const avatarUrl = (u) => (u.avatar_at ? imgUrl('avatares/' + u.id, u.avatar_at) : null);
+
+// Reduz e recorta (centro) no navegador e converte para WebP: a imagem enviada fica com poucos KB
+async function resizeImage(file, w, hh) {
+  if (!/^image\/(png|jpe?g|webp|avif|gif)$/.test(file.type)) throw new Error('Use uma imagem PNG, JPG, WEBP, AVIF ou GIF.');
+  if (file.size > IMAGE_LIMITS.MAX_INPUT_MB * 1048576) throw new Error('A imagem passa de ' + IMAGE_LIMITS.MAX_INPUT_MB + ' MB.');
+  const bmp = await createImageBitmap(file);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = hh;
+  const k = Math.max(w / bmp.width, hh / bmp.height);
+  c.getContext('2d').drawImage(bmp, (w - bmp.width * k) / 2, (hh - bmp.height * k) / 2, bmp.width * k, bmp.height * k);
+  bmp.close();
+  const blob = await new Promise((r) => c.toBlob(r, 'image/webp', IMAGE_LIMITS.QUALITY));
+  if (!blob) throw new Error('Não foi possível processar a imagem.');
+  return blob;
+}
+async function uploadImage(path, blob) {
+  const { error } = await sb.storage.from(IMAGE_BUCKET).upload(path + '.webp', blob, { contentType: 'image/webp', upsert: true });
+  if (error) throw error;
+}
+
+async function report(kind, id) {
+  if (!state.me) return openAuth('login', 'Entre para denunciar.');
+  const reason = (prompt('Descreva o motivo da denúncia (mínimo 3 caracteres):') || '').trim().slice(0, 500);
+  if (reason.length < 3) return;
+  const { error } = await sb.from('reports').insert({ [kind === 'project' ? 'project_id' : 'profile_id']: id, reason });
+  toast(error ? (error.code === '23505' ? 'Você já denunciou isto.' : friendly(error)) : 'Denúncia enviada. Obrigado!');
+}
+
+// Foto e denúncia no perfil de u
+function profileTools(u) {
+  const mine = !!state.me && state.me.id === u.id && !state.me.banned;
+  const change = async (file) => {
+    try {
+      await uploadImage('avatares/' + u.id, await resizeImage(file, IMAGE_LIMITS.AVATAR_PX, IMAGE_LIMITS.AVATAR_PX));
+      const { error } = await sb.rpc('set_avatar', { flag: true });
+      if (error) throw error;
+      state.me.avatar_at = new Date().toISOString();
+      renderSession(); toast('Foto atualizada.'); route();
+    } catch (err) { toast(friendly(err)); }
+  };
+  const remove = async () => {
+    const { error } = await sb.rpc('set_avatar', { flag: false, target: mine ? null : u.id });
+    if (error) return toast(friendly(error));
+    await sb.storage.from(IMAGE_BUCKET).remove(['avatares/' + u.id + '.webp']);
+    if (mine) { state.me.avatar_at = null; renderSession(); }
+    toast('Foto removida.'); route();
+  };
+  return h('div', { class: 'actions' },
+    mine ? h('label', { class: 'btn' }, 'Trocar foto',
+      h('input', { type: 'file', accept: 'image/*', hidden: '', onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) change(f); } })) : null,
+    u.avatar_at && (mine || isStaff()) ? h('button', { class: 'btn danger', onclick: remove }, 'Remover foto') : null,
+    !mine ? h('button', { class: 'btn', onclick: () => report('profile', u.id) }, 'Denunciar') : null);
+}
 
 /* ---------- Páginas ---------- */
 async function showHome(my) {
@@ -268,7 +335,7 @@ function showAbout() {
 }
 
 async function showProfile(name, my) {
-  const { data: u, error } = await sb.from('profiles').select('id, username, role, banned, created_at').eq('username', name).maybeSingle();
+  const { data: u, error } = await sb.from('profiles').select('id, username, role, banned, created_at, avatar_at').eq('username', name).maybeSingle();
   if (error) throw error;
   const list = await loadList();
   if (my !== nav) return;
@@ -276,16 +343,17 @@ async function showProfile(name, my) {
   const mine = list.filter((p) => p.user_id === u.id);
   $('#view').replaceChildren(
     h('div', { class: 'phead' },
-      h('div', { class: 'avatar', 'aria-hidden': 'true' }, u.username[0].toUpperCase()),
+      avatarUrl(u) ? h('img', { class: 'avatar', src: avatarUrl(u), alt: 'Foto de ' + u.username }) : h('div', { class: 'avatar', 'aria-hidden': 'true' }, u.username[0].toUpperCase()),
       h('div', {}, h('h1', {}, '@' + u.username),
         h('div', { class: 'meta' }, roleTag(u), h('span', {}, 'Membro desde ' + fmtDate(u.created_at)), h('span', {}, mine.length + ' projeto(s)')))),
+    profileTools(u),
     userActions(u, () => { state.list = null; route(); }),
     h('ul', { class: 'grid' }, mine.length ? mine.map(card) : [h('li', { class: 'empty' }, 'Nenhum projeto publicado.')]));
 }
 
 async function showProject(id, my) {
   const [{ data: p, error }, list, { data: assets }] = await Promise.all([
-    sb.from('projects').select('id, title, description, category, code, css, js, updated_at, user_id, forked_from, profiles!user_id(username)').eq('id', id).maybeSingle(),
+    sb.from('projects').select('id, title, description, category, code, css, js, updated_at, user_id, forked_from, cover_at, profiles!user_id(username)').eq('id', id).maybeSingle(),
     loadList(),
     sb.from('assets').select('path, kind, size').eq('project_id', id).order('path')
   ]);
@@ -314,7 +382,8 @@ async function showProject(id, my) {
     if (er) throw er;
     return data;
   };
-  let last = 0;
+  let last = 0, lastDl = 0, lastSend = 0;
+  const rooms = new Map();
   const onMsg = async (e) => {
     const m = e.data;
     if (e.source !== frame.contentWindow || !m || m.bancada !== 1) return;
@@ -324,6 +393,54 @@ async function showProject(id, my) {
       if (m.type === 'ranking') {
         const r = await loadRank();
         return reply({ ranking: r.slice(0, Math.min(100, Math.max(1, Number(m.limit) || 20))).map((s) => ({ username: s.profiles ? s.profiles.username : '?', score: Number(s.score) })) });
+      }
+      if (m.type === 'download') {
+        const d = m.data, ext = String(m.name || '').split('.').pop().toLowerCase();
+        const okType = typeof d === 'string' || d instanceof Blob || d instanceof ArrayBuffer || ArrayBuffer.isView(d);
+        const size = !okType ? 0 : typeof d === 'string' ? new Blob([d]).size : (d.size || d.byteLength);
+        if (!okType || !size || !DOWNLOAD.EXT.includes(ext)) return reply({ error: 'Arquivo não permitido. Extensões: ' + DOWNLOAD.EXT.join(', ') + '.' });
+        if (size > DOWNLOAD.MAX_MB * 1048576) return reply({ error: 'Arquivo grande demais (máximo ' + DOWNLOAD.MAX_MB + ' MB).' });
+        if (Date.now() - lastDl < 2000) return reply({ error: 'Muitos downloads seguidos.' });
+        lastDl = Date.now();
+        const name = String(m.name).replace(/[^\w.-]/g, '-').slice(-80);
+        if (!confirm('O jogo "' + p.title + '" quer baixar "' + name + '" (' + mb(size) + '). Baixar?')) return reply({ error: 'Download cancelado.' });
+        const url = URL.createObjectURL(new Blob([d], { type: 'application/octet-stream' }));
+        const a = h('a', { href: url, download: name });
+        document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        return reply({ ok: true });
+      }
+      if (m.type === 'join') {
+        const name = String(m.room || '').replace(/[^\w-]/g, '').slice(0, 40);
+        if (!name) return reply({ error: 'Nome de sala inválido.' });
+        if (!state.me) { toast('Entre na sua conta para jogar online.'); return reply({ error: 'Não está logado.' }); }
+        if (rooms.has(name) || rooms.size >= ROOM_LIMITS.MAX_ROOMS) return reply({ error: 'Só é possível estar em ' + ROOM_LIMITS.MAX_ROOMS + ' sala por vez.' });
+        const me = { id: crypto.randomUUID().slice(0, 8), name: state.me.username };
+        const ch = sb.channel('bancada:' + p.id + ':' + name, { config: { broadcast: { self: false }, presence: { key: me.id } } });
+        const push = (d) => frame.contentWindow && frame.contentWindow.postMessage({ bancada: 1, event: true, room: name, ...d }, '*');
+        ch.on('broadcast', { event: 'm' }, ({ payload }) => push({ kind: 'message', from: payload.f, data: payload.d }));
+        ch.on('presence', { event: 'sync' }, () => push({ kind: 'presence', players: Object.entries(ch.presenceState()).map(([id, v]) => ({ id, name: v[0].name })) }));
+        rooms.set(name, { ch, me });
+        let answered = false;
+        ch.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') { await ch.track({ name: me.name }); if (!answered) { answered = true; reply({ me: me.id, name: me.name }); } }
+          else if (['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status) && !answered) { answered = true; rooms.delete(name); sb.removeChannel(ch); reply({ error: 'Não foi possível entrar na sala.' }); }
+        });
+        return;
+      }
+      if (m.type === 'send') {
+        const r = rooms.get(String(m.room));
+        if (!r || Date.now() - lastSend < ROOM_LIMITS.MIN_INTERVAL_MS) return;
+        lastSend = Date.now();
+        const txt = JSON.stringify(m.data);
+        if (txt === undefined || txt.length > ROOM_LIMITS.MAX_MSG_CHARS) return;
+        r.ch.send({ type: 'broadcast', event: 'm', payload: { f: r.me, d: JSON.parse(txt) } });   // 'f' (quem enviou) é colocado pelo site: não dá para falsificar
+        return;
+      }
+      if (m.type === 'leave') {
+        const r = rooms.get(String(m.room));
+        if (r) { rooms.delete(String(m.room)); sb.removeChannel(r.ch); }
+        return;
       }
       if (m.type === 'score') {
         const s = Number(m.score);
@@ -338,7 +455,7 @@ async function showProject(id, my) {
     } catch (err) { reply({ error: friendly(err) }); }
   };
   addEventListener('message', onMsg);
-  cleanup = () => removeEventListener('message', onMsg);
+  cleanup = () => { removeEventListener('message', onMsg); rooms.forEach((r) => sb.removeChannel(r.ch)); rooms.clear(); };
 
   const fork = () => (state.me ? (location.hash = '#/novo/' + p.id) : openAuth('login', 'Entre para criar um fork.'));
   const remove = async () => {
@@ -347,12 +464,10 @@ async function showProject(id, my) {
     if (err) { if (isAuthErr(err)) requireLogin(); else toast(friendly(err)); return; }
     if (!del.length) return toast('Sem permissão para apagar este projeto.');
     sb.storage.from(STORAGE_BUCKET).remove(projFiles.map((x) => p.id + '/' + x.path));
+    if (p.cover_at) sb.storage.from(IMAGE_BUCKET).remove(['capas/' + p.id + '.webp']);
     state.list = null;
     toast('Projeto excluído.');
     location.hash = '#/';
-  };
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(p.code); toast('Código copiado.'); } catch { toast('Não foi possível copiar.'); }
   };
 
   $('#view').replaceChildren(
@@ -375,6 +490,7 @@ async function showProject(id, my) {
         parent ? h('a', { href: '#/p/' + parent.id }, 'baseado em ' + parent.title) : null),
       h('p', {}, p.description),
       h('p', { class: 'hint' }, 'Este projeto roda isolado (sandbox) e não acessa sua conta.'),
+      !(state.me && state.me.id === p.user_id) ? h('button', { class: 'btn', onclick: () => report('project', p.id) }, 'Denunciar') : null,
       canEdit ? h('div', { class: 'actions' },
         h('a', { class: 'btn', href: '#/editar/' + p.id }, 'Editar'),
         h('button', { class: 'btn danger', onclick: remove }, 'Excluir')) : null,
@@ -389,12 +505,26 @@ async function showProject(id, my) {
 
 async function showMod(my) {
   if (!isStaff()) { location.hash = '#/'; return; }
-  const [{ data: users, error }, list] = await Promise.all([
-    sb.from('profiles').select('id, username, role, banned').order('username'), loadList()]);
+  const [{ data: users, error }, list, { data: reps }] = await Promise.all([
+    sb.from('profiles').select('id, username, role, banned').order('username'), loadList(),
+    sb.from('reports').select('id, reason, created_at, project_id, profile_id, project:projects!project_id(title), target:profiles!profile_id(username), reporter:profiles!reporter_id(username)')
+      .eq('status', 'open').order('created_at', { ascending: false }).limit(100)]);
   if (error) throw error;
   if (my !== nav) return;
   const refresh = () => { state.list = null; route(); };
   const owner = state.me.role === 'owner';
+  const close = async (r, status) => {
+    const { error: er } = await sb.from('reports').update({ status }).eq('id', r.id);
+    if (er) toast(friendly(er)); else { toast('Denúncia ' + (status === 'resolved' ? 'resolvida.' : 'descartada.')); refresh(); }
+  };
+  const repList = h('div', {}, (reps || []).length ? reps.map((r) => h('article', {},
+    h('h3', {}, r.project_id ? h('a', { href: '#/p/' + r.project_id }, 'Jogo: ' + (r.project ? r.project.title : '(apagado)'))
+      : h('a', { href: '#/u/' + encodeURIComponent(r.target ? r.target.username : '') }, 'Perfil: @' + (r.target ? r.target.username : '?'))),
+    h('p', {}, r.reason),
+    h('p', { class: 'hint' }, 'por @' + (r.reporter ? r.reporter.username : '?') + ' · ' + fmtDate(r.created_at)),
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn', onclick: () => close(r, 'resolved') }, 'Resolvida'),
+      h('button', { class: 'btn ghost', onclick: () => close(r, 'dismissed') }, 'Descartar')))) : [h('p', { class: 'hint' }, 'Nenhuma denúncia aberta.')]);
   const input = h('input', { placeholder: 'Nome de usuário', maxlength: '20', 'aria-label': 'Novo moderador' });
   const add = async () => {
     const u = users.find((x) => x.username.toLowerCase() === input.value.trim().toLowerCase());
@@ -404,6 +534,7 @@ async function showMod(my) {
   $('#view').replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'Moderação'),
     owner ? h('div', { class: 'inline' }, input, h('button', { class: 'btn solid', onclick: add }, 'Adicionar moderador')) : null,
     h('p', { class: 'hint' }, 'Para excluir ou editar jogos, abra a página do jogo. Aqui você gerencia contas.'),
+    h('h2', {}, 'Denúncias abertas (' + (reps || []).length + ')'), repList, h('h2', {}, 'Contas'),
     h('table', { class: 'users' }, h('tbody', {}, users.map((u) => h('tr', {},
       h('td', {}, userLink(u.username), ' ', roleTag(u), h('div', { class: 'hint' }, list.filter((p) => p.user_id === u.id).length + ' projeto(s)')),
       h('td', {}, userActions(u, refresh))))))));
@@ -506,6 +637,27 @@ async function desenharRanking() {
       "Interface & Ferramentas [SweetAlert2](https://cdnjs.com/libraries/limonte-sweetalert2) Pop-ups e alertas personalizaveis. & [Chart.js](https://cdnjs.com/libraries/Chart.js) Gráficos interativos como pizza, barras e linhas, bom para dashboard e painéis.",
       "Animações: [GSAP](https://cdnjs.com/libraries/gsap) Animações suaves para menus, interfaces e jogos. & [Anime.js](https://cdnjs.com/libraries/animejs) Animações leves e basicas."
     ]]
+  ] },
+  { id: 'online', title: 'Download e salas online', blocks: [
+    ['p', "Dentro da Bancada o jogo é isolado por segurança, então um download feito pelo próprio jogo é bloqueado. Use `Bancada.download`: o site pergunta ao jogador se quer baixar e, se ele aceitar, baixa o arquivo."],
+    ['code', `// data pode ser Blob, ArrayBuffer, Uint8Array ou texto
+await Bancada.download('musica.mp3', blob);`],
+    ['ul', ["Extensões aceitas: mp3, wav, ogg, opus, aac, json, txt, png, webp e glb.", "Tamanho máximo: 30 MB, e no máximo um download a cada 2 segundos."]],
+    ['h3', 'Salas online'],
+    ['p', "Com `Bancada.joinRoom` os jogadores de um mesmo jogo trocam mensagens em tempo real. Só quem está logado entra."],
+    ['code', `const sala = await Bancada.joinRoom('arena');
+
+sala.onPresence((jogadores) => { /* [{id, name}] quem está na sala agora */ });
+sala.onMessage((dados, de) => { /* de = {id, name}: o nome é o verdadeiro */ });
+
+sala.send({ x: 10, y: 20 });   // vai para todos os OUTROS jogadores
+// sala.leave() para sair`],
+    ['ul', [
+      "Você não recebe as suas próprias mensagens. Para se ver na tela, desenhe a partir dos seus dados.",
+      "Cada mensagem aceita até 4000 caracteres, e o site deixa passar no máximo 25 por segundo por jogador.",
+      "Cada jogo tem as suas salas: a sala 'arena' de um jogo não se mistura com a de outro.",
+      "Não existe servidor decidindo o jogo: um jogador (por exemplo o primeiro da lista) deve ser o 'dono' da partida, e não confie cegamente nos dados dos outros.",
+      "Envie só o que mudou (por exemplo 10 vezes por segundo) e deixe o resto para o jogo calcular."]]
   ] }
 ];
 
@@ -625,7 +777,7 @@ async function showEditor(mode, arg, my) {
   let src = null, srcAssets = [];
   if (arg) {
     const [r, a] = await Promise.all([
-      sb.from('projects').select('id, title, description, category, code, css, js, user_id').eq('id', arg).maybeSingle(),
+      sb.from('projects').select('id, title, description, category, code, css, js, user_id, cover_at').eq('id', arg).maybeSingle(),
       sb.from('assets').select('path, kind, size').eq('project_id', arg)]);
     if (r.error) throw r.error;
     if (my !== nav) return;
@@ -697,9 +849,25 @@ async function showEditor(mode, arg, my) {
   zone.addEventListener('dragover', (e) => e.preventDefault());
   zone.addEventListener('drop', (e) => { e.preventDefault(); addFiles([...e.dataTransfer.files]); });
 
+  // Capa (opcional): vira 640x360 WebP no navegador antes de enviar
+  let coverBlob = null, coverRemove = false;
+  const coverImg = h('img', { class: 'cover', alt: 'Prévia da capa', hidden: '' }), coverErr = h('p', { class: 'error' });
+  if (isEdit && coverUrl(src)) { coverImg.src = coverUrl(src); coverImg.hidden = false; }
+  const coverBox = h('section', {}, h('h2', {}, 'Capa (opcional)'),
+    h('p', { class: 'hint' }, 'PNG, JPG, WEBP ou AVIF de até ' + IMAGE_LIMITS.MAX_INPUT_MB + ' MB. Será recortada em 16:9.'), coverImg, coverErr,
+    h('input', { type: 'file', accept: 'image/*', onchange: async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      coverErr.textContent = '';
+      try {
+        coverBlob = await resizeImage(f, IMAGE_LIMITS.COVER_W, IMAGE_LIMITS.COVER_H);
+        coverRemove = false; coverImg.src = URL.createObjectURL(coverBlob); coverImg.hidden = false;
+      } catch (err) { coverBlob = null; coverErr.textContent = err.message; e.target.value = ''; }
+    } }),
+    isEdit && src.cover_at ? h('button', { type: 'button', class: 'btn danger', onclick: () => { coverBlob = null; coverRemove = true; coverImg.hidden = true; } }, 'Remover capa') : null);
   const form = h('form', { class: 'editor' },
     h('h1', {}, isEdit ? 'Editar projeto' : forkOf ? 'Novo fork' : 'Novo projeto'),
-    h('label', {}, 'Nome do projeto', title), h('label', {}, 'Categoria', category), h('label', {}, 'Descrição curta', description),
+    h('label', {}, 'Nome do projeto', title), h('label', {}, 'Categoria', category), h('label', {}, 'Descrição curta', description), coverBox,
     h('section', {}, h('h2', {}, 'Código (opcional)'),
       h('p', { class: 'hint' }, 'Cole o código ou arraste o arquivo para o campo. Dentro do projeto, use só o nome: style.css, script.js, imagens/foto.webp.'),
       fields.map((f) => h('label', {}, f.label, f.ta, f.err))),
@@ -750,11 +918,20 @@ async function showEditor(mode, arg, my) {
         if (body[col]) await B.upload(id + '/' + name, new Blob([body[col]], { type: mime }), { contentType: mime, upsert: true });
         else if (isEdit) await B.remove([id + '/' + name]);
       }
+      if (coverBlob) {
+        await uploadImage('capas/' + id, coverBlob);
+        const { error } = await sb.from('projects').update({ cover_at: new Date().toISOString() }).eq('id', id);
+        if (error) throw error;
+      } else if (coverRemove) {
+        await sb.from('projects').update({ cover_at: null }).eq('id', id);
+        await sb.storage.from(IMAGE_BUCKET).remove(['capas/' + id + '.webp']);
+      }
       state.list = null;
       toast(isEdit ? 'Projeto atualizado.' : forkOf ? 'Fork criado!' : 'Projeto criado!');
       location.hash = '#/p/' + id;
     } catch (err) {
       if (uploaded.length) await B.remove(uploaded).catch(() => {});
+      if (coverBlob && !isEdit && id) await sb.storage.from(IMAGE_BUCKET).remove(['capas/' + id + '.webp']).catch(() => {});
       if (!isEdit && id) await sb.from('projects').delete().eq('id', id);
       if (isAuthErr(err)) requireLogin(); else status.textContent = 'Erro: ' + friendly(err);
       submit.disabled = false;
