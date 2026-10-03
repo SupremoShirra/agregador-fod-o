@@ -112,3 +112,7 @@ label input,label select,label textarea{font:inherit;font-weight:400;padding:.55
 .filerow .ref{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 .filerow code{font-family:var(--mono);word-break:break-all}
 .filerow .btn{font-size:.75rem;padding:.2rem .6rem;align-self:flex-start}
+/* Capas, fotos e denúncias */
+.cover{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;background:var(--line);margin-bottom:.4rem}
+img.avatar{object-fit:cover}
+.mini{width:1.5rem;height:1.5rem;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:.35rem}
