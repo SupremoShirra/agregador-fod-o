@@ -2,7 +2,26 @@
 
 const $ = (s, r = document) => r.querySelector(s);
 const CATS = ['Utilitários', 'Jogos', 'Produtividade', 'Design e arte', 'Educação', 'Outros'];
-const MAX_CODE = 400000;
+/* ===================== LIMITES E CONFIGURAÇÕES (edite aqui) =====================
+   Ao mudar um limite, mude também o schema-v4.sql (valores em comentário lá). */
+const PROJECT_LIMITS = {
+  MAX_ASSETS_MB: 30,            // imagens + áudios + modelos 3D por projeto (HTML/CSS/JS NÃO contam)
+  MAX_HTML_CHARACTERS: 400000,
+  MAX_CSS_CHARACTERS: 200000,
+  MAX_JS_CHARACTERS: 1000000
+};
+const STORAGE_BUCKET = 'projetos';   // bucket do Supabase Storage (criado no SQL)
+// Formatos aceitos: extensão -> pasta dentro do projeto e tipo MIME. Para liberar outro, adicione aqui E no schema-v4.sql
+const ASSET_TYPES = {
+  avif: { dir: 'imagens', mime: 'image/avif' }, webp: { dir: 'imagens', mime: 'image/webp' },
+  opus: { dir: 'audio', mime: 'audio/ogg' }, aac: { dir: 'audio', mime: 'audio/aac' },
+  glb: { dir: 'modelos', mime: 'model/gltf-binary' }
+};
+const KIND = { imagens: 'imagem', audio: 'audio', modelos: 'modelo' };
+// Onde ficam os arquivos: <bucket>/<id do projeto>/<caminho>. É também a base das referências relativas dos jogos.
+const projectBase = (id) => CFG.SUPABASE_URL + '/storage/v1/object/public/' + STORAGE_BUCKET + '/' + id + '/';
+const fileUrl = (id, path) => projectBase(id) + path;
+const CODE_FILES = [['index.html', 'code', 'text/plain'], ['style.css', 'css', 'text/css'], ['script.js', 'js', 'text/javascript']];
 // Edite aqui as novidades do site (mais recente primeiro)
 const NEWS = [
   { d: '2026-09-29', t: 'Perfis, forks e moderação', b: [
@@ -99,7 +118,7 @@ function renderSession() {
   if (state.me) {
     box.append(
       h('a', { class: 'btn ghost', href: '#/u/' + encodeURIComponent(state.me.username) }, '@' + state.me.username),
-      state.me.banned ? h('span', { class: 'tag ban' }, 'Conta banida') : h('button', { class: 'btn solid', onclick: () => openEditor() }, 'Novo projeto'),
+      state.me.banned ? h('span', { class: 'tag ban' }, 'Conta banida') : h('a', { class: 'btn solid', href: '#/novo' }, 'Novo projeto'),
       h('button', { class: 'btn ghost', onclick: logout }, 'Sair'));
   } else {
     box.append(
@@ -168,50 +187,6 @@ $('#authForm').addEventListener('submit', async (e) => {
   } finally { btn.disabled = false; }
 });
 
-let ed = { id: null, fork: null };
-function openEditor(p, forkOf) {
-  if (!state.me) return openAuth('login', 'Entre para publicar.');
-  if (state.me.banned) return toast('Sua conta está banida e não pode publicar.');
-  const f = $('#editForm');
-  ed = { id: p && !forkOf ? p.id : null, fork: forkOf || null };
-  $('#editTitle').textContent = forkOf ? 'Novo fork' : p ? 'Editar projeto' : 'Novo projeto';
-  f.category.replaceChildren(...CATS.map((c) => h('option', { value: c }, c)));
-  f.title.value = p ? p.title : '';
-  f.category.value = p ? p.category : CATS[0];
-  f.description.value = p ? p.description : '';
-  f.code.value = p ? p.code : '';
-  $('#editError').textContent = '';
-  $('#editDlg').showModal();
-  f.title.focus();
-}
-$('#editForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const f = e.target, btn = $('#editSubmit');
-  const body = { title: f.title.value.trim(), category: f.category.value, description: f.description.value.trim(), code: f.code.value };
-  if (body.code.length > MAX_CODE) { $('#editError').textContent = 'O código passa de 400 mil caracteres.'; return; }
-  btn.disabled = true;
-  try {
-    let id = ed.id;
-    if (id) {
-      const { data, error } = await sb.from('projects').update(body).eq('id', id).select('id');
-      if (error) throw error;
-      if (!data.length) throw new Error('Sem permissão para alterar este projeto.');
-    } else {
-      if (ed.fork) body.forked_from = ed.fork;
-      const { data, error } = await sb.from('projects').insert(body).select('id').single();
-      if (error) throw error;
-      id = data.id;
-    }
-    state.list = null;
-    $('#editDlg').close();
-    toast(ed.id ? 'Projeto atualizado.' : ed.fork ? 'Fork criado!' : 'Projeto publicado!');
-    if (location.hash === '#/p/' + id) route(); else location.hash = '#/p/' + id;
-  } catch (err) {
-    if (isAuthErr(err)) { $('#editDlg').close(); requireLogin(); }
-    else $('#editError').textContent = friendly(err);
-  } finally { btn.disabled = false; }
-});
-
 /* ---------- Componentes ---------- */
 const userLink = (name) => h('a', { href: '#/u/' + encodeURIComponent(name) }, '@' + name);
 
@@ -251,7 +226,7 @@ const roleTag = (u) => [
 /* ---------- SDK de ranking (injetado em todo jogo) ---------- */
 // O jogo fala com o site por postMessage; só o site (pai) conversa com o banco, usando o login do jogador.
 const SDK = `<script>(()=>{const p=new Map();let n=0;addEventListener('message',e=>{const m=e.data;if(e.source!==parent||!m||m.bancada!==1)return;const r=p.get(m.id);if(!r)return;p.delete(m.id);m.error?r.reject(new Error(m.error)):r.resolve(m)});const call=(type,d)=>new Promise((res,rej)=>{const id=++n;p.set(id,{resolve:res,reject:rej});parent.postMessage({bancada:1,id,type,...d},'*');setTimeout(()=>{if(p.delete(id))rej(new Error('Tempo esgotado'))},8000)});window.Bancada={submitScore:s=>call('score',{score:s}).then(r=>r.best),getRanking:n=>call('ranking',{limit:n}).then(r=>r.ranking),getUser:()=>call('user').then(r=>r.username)}})()<\/script>`;
-const withSdk = (code) => /<(?:head|html)[^>]*>/i.test(code) ? code.replace(/<(?:head|html)[^>]*>/i, (m) => m + SDK) : SDK + code;
+const withSdk = (code, extra = '') => /<(?:head|html)[^>]*>/i.test(code) ? code.replace(/<(?:head|html)[^>]*>/i, (m) => m + extra + SDK) : extra + SDK + code;
 
 /* ---------- Páginas ---------- */
 async function showHome(my) {
@@ -309,14 +284,16 @@ async function showProfile(name, my) {
 }
 
 async function showProject(id, my) {
-  const [{ data: p, error }, list] = await Promise.all([
-    sb.from('projects').select('id, title, description, category, code, updated_at, user_id, forked_from, profiles!user_id(username)').eq('id', id).maybeSingle(),
-    loadList()
+  const [{ data: p, error }, list, { data: assets }] = await Promise.all([
+    sb.from('projects').select('id, title, description, category, code, css, js, updated_at, user_id, forked_from, profiles!user_id(username)').eq('id', id).maybeSingle(),
+    loadList(),
+    sb.from('assets').select('path, kind, size').eq('project_id', id).order('path')
   ]);
   if (error) throw error;
   if (my !== nav) return;
   if (!p) { $('#view').replaceChildren(h('a', { href: '#/' }, '← Início'), h('p', { class: 'empty' }, 'Projeto não encontrado.')); return; }
   const author = p.profiles ? p.profiles.username : '?';
+  const projFiles = [...CODE_FILES.filter(([, col]) => p[col]).map(([path, col]) => ({ path, kind: 'codigo', size: new Blob([p[col]]).size })), ...(assets || [])];
   const canEdit = state.me && !state.me.banned && (state.me.id === p.user_id || isStaff());
   const parent = p.forked_from && list.find((x) => x.id === p.forked_from);
   const forks = list.filter((x) => x.forked_from === p.id);
@@ -328,7 +305,7 @@ async function showProject(id, my) {
     sandbox: 'allow-scripts allow-pointer-lock allow-modals allow-forms', allow: 'fullscreen; gamepad; autoplay',
     allowfullscreen: '', title: p.title, referrerpolicy: 'no-referrer', loading: 'eager'
   });
-  frame.srcdoc = withSdk(p.code);
+  frame.srcdoc = buildDoc(p);
   const stage = h('div', { class: 'stage' }, frame);
 
   const loadRank = async () => {
@@ -363,12 +340,13 @@ async function showProject(id, my) {
   addEventListener('message', onMsg);
   cleanup = () => removeEventListener('message', onMsg);
 
-  const fork = () => openEditor({ ...p, title: p.title + ' (fork)', description: 'Fork de ' + p.title + '. ' + p.description }, p.id);
+  const fork = () => (state.me ? (location.hash = '#/novo/' + p.id) : openAuth('login', 'Entre para criar um fork.'));
   const remove = async () => {
     if (!confirm('Excluir "' + p.title + '"? Isso não pode ser desfeito.')) return;
     const { data: del, error: err } = await sb.from('projects').delete().eq('id', p.id).select('id');
     if (err) { if (isAuthErr(err)) requireLogin(); else toast(friendly(err)); return; }
     if (!del.length) return toast('Sem permissão para apagar este projeto.');
+    sb.storage.from(STORAGE_BUCKET).remove(projFiles.map((x) => p.id + '/' + x.path));
     state.list = null;
     toast('Projeto excluído.');
     location.hash = '#/';
@@ -398,11 +376,13 @@ async function showProject(id, my) {
       h('p', {}, p.description),
       h('p', { class: 'hint' }, 'Este projeto roda isolado (sandbox) e não acessa sua conta.'),
       canEdit ? h('div', { class: 'actions' },
-        h('button', { class: 'btn', onclick: () => openEditor(p) }, 'Editar'),
+        h('a', { class: 'btn', href: '#/editar/' + p.id }, 'Editar'),
         h('button', { class: 'btn danger', onclick: remove }, 'Excluir')) : null,
       h('details', {}, h('summary', {}, 'Código'),
-        h('div', { class: 'codebox' }, h('pre', {}, p.code)),
-        h('button', { class: 'btn', onclick: copy }, 'Copiar código')),
+        [['HTML', p.code], ['CSS', p.css], ['JavaScript', p.js]].filter(([, t]) => t).map(([n, t]) => h('div', {},
+          h('h3', {}, n), h('div', { class: 'codebox' }, h('pre', {}, t)), h('button', { class: 'btn', onclick: () => copyText(t) }, 'Copiar ' + n)))),
+      h('details', {}, h('summary', {}, 'Arquivos do projeto (referências e URLs)'),
+        projFiles.length ? projFiles.map((x) => fileRow(x, p.id)) : h('p', { class: 'hint' }, 'Este projeto não tem arquivos.')),
       h('h2', {}, 'Forks (' + forks.length + ')'),
       h('ul', { class: 'grid' }, forks.length ? forks.map(card) : [h('li', { class: 'empty' }, 'Ninguém fez fork ainda. Seja o primeiro!')])));
 }
@@ -488,46 +468,6 @@ async function desenharRanking() {
       "Para melhorar o jogo de outra pessoa: abra a página do jogo e clique em Criar fork. O código é copiado e vira um projeto seu.",
       "Os forks aparecem na página do jogo original e no filtro Forks da página inicial.",
       "Só o autor e a moderação podem editar ou excluir um projeto."]]
-  ] },
-  
-  { id: 'Importacao', title: 'Jogos 3d, fisica, e motores de renderização', blocks: [
-  ['h3', "Créditos"],
-  ['p', "Graças ao [@Davi](#/u/Dave007), um membro valioso de nossa comunidade, foi possivel descobrir ser possivel a criação de jogos 3d por meio de importação de bibliotecas, e por este feito, o creditamos, parabéns [@Davi](#/u/Dave007)!"],
-  ['h3', "O que é a importação de bibliotecas"],
-  ['p', "Pense no seu projeto como uma construção de LEGO. Você monta o seu LEGO e usa todas as peças, porém sente que não está como idealizou. Você quer uma peça metálica, redonda e pesada, e, para ficar como quer, decide pedir essa peça emprestada a um amigo. Após colocar a peça, você finalmente sente que sua construção está completa. Mas acabou a brincadeira e aquela peça é muito pesada para levá-la por aí, então você decide devolvê-la ao seu amigo."],
-  ['p', "Isto é a importação de bibliotecas. Para não termos que implementar várias bibliotecas ao site e pesar a experiência do usuário ao rodar qualquer jogo, até os que não são 3D, recomendamos que você importe as bibliotecas que usará em seu jogo."],
-  ['p', "Para importar uma biblioteca para o seu jogo, você usará a tag `<script>` no cabeçalho `<head>` do seu HTML, apontando o parâmetro `src` para o link da biblioteca na CDN (como a [Cloudflare cdnjs](https://cdnjs.com/libraries))"],
-  ['h3', "Veja abaixo o exemplo de importação da [Three.js](https://cdnjs.com/libraries/three.js)"],
-  ['code', `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <title>Meu Jogo 3D</title>
-
-  <!-- Aqui é onde a mágica acontece: importando a biblioteca Three.js via CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-</head>
-<body>
-
-  <script>
-    // A partir deste ponto, o Three.js já está carregado!
-    // Você já pode usar todos os comandos dele, como criar cenas, câmeras e objetos 3D.
-    const cena = new THREE.Scene();
-    console.log("Three.js pronto para uso!", cena);
-  </script>
-
-</body>
-</html>`],
-
-['h3', "Bibliotecas Interessantes para Jogos e ferramentas"],
-    
-  ['ul', ["Motores 3D: [Three.js](https://cdnjs.com/libraries/three.js) Para cenários e objetos mais simples. & [Babylon.js](https://cdnjs.com/libraries/babylonjs) Para projetos mais ambiciosos e avançados.",
-          "Motores 2d: [Phaser](https://cdnjs.com/libraries/phaser) Motor Renderizador 2d bem completo, com suporte a sprites, mapa de tiles e fisica simples & [PixiJs](https://cdnjs.com/libraries/pixi.js) Renderizador 2d ultra-rápido, para maxima performance)",
-          "Fisica 2d & 3d: [Matter.js](https://cdnjs.com/libraries/matter-js) Fisica 2D para objetos, gravidade, colisões, RigidBody & [Cannon.js](https://cdnjs.com/libraries/cannon.js) Fisica de objetos, RigidBody, colisões.",
-          "Áudio: [Howler.js](https://cdnjs.com/libraries/howler) Reprodutor de áudio. & [Tone.js](https://cdnjs.com/libraries/tone) Sintetizador de áudio, cria batidas e sons.",
-          "Interface & Ferramentas [SweetAlert2](https://cdnjs.com/libraries/limonte-sweetalert2) Pop-ups e alertas personalizaveis. & [Chart.js](https://cdnjs.com/libraries/Chart.js) Gráficos interativos como pizza, barras e linhas, bom para dashboard e painéis.",
-          "Animações: [GSAP](https://cdnjs.com/libraries/gsap) Animações suaves para menus, interfaces e jogos. & [Anime.js](https://cdnjs.com/libraries/animejs) Animações leves e basicas."
-          ]]
   ] }
 ];
 
@@ -559,6 +499,235 @@ function showDocs(id) {
     h('article', {}, h('h1', {}, sec.title), sec.blocks.map(docBlock))));
 }
 
+/* ---------- Referências por nome: montagem do jogo ---------- */
+// Referência relativa (sem http:, //) = arquivo do próprio projeto
+const isLocal = (u) => !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(u);
+const attrOf = (tag, n) => (tag.match(new RegExp('\\b' + n + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i')) || []).slice(1).find((v) => v != null);
+const escEnd = (s, t) => s.replace(new RegExp('</' + t, 'gi'), '<\\/' + t);
+
+// Junta HTML + CSS + JS. <link>/<script src> locais viram código embutido; imagens, áudios e modelos
+// resolvem pela <base> apontando para a pasta do projeto no Storage (injetada em withSdk).
+function buildDoc(p) {
+  let doc = p.code || '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body></body></html>';
+  let cssUsed = false, jsUsed = false;
+  doc = doc.replace(/<link\b[^>]*>/gi, (tag) => {
+    const href = attrOf(tag, 'href');
+    if (!p.css || !/stylesheet/i.test(tag) || !href || !isLocal(href)) return tag;
+    if (cssUsed) return '';
+    cssUsed = true;
+    return '<style>' + escEnd(p.css, 'style') + '</style>';
+  });
+  doc = doc.replace(/<script\b[^>]*\bsrc\s*=[^>]*>\s*<\/script>/gi, (tag) => {
+    const src = attrOf(tag, 'src');
+    if (!p.js || !src || !isLocal(src)) return tag;
+    if (jsUsed) return '';
+    jsUsed = true;
+    return '<script' + (/type\s*=\s*["']?module/i.test(tag) ? ' type="module"' : '') + '>' + escEnd(p.js, 'script') + '</script>';
+  });
+  if (p.css && !cssUsed) {
+    const st = '<style>' + escEnd(p.css, 'style') + '</style>';
+    doc = /<\/head>/i.test(doc) ? doc.replace(/<\/head>/i, (m) => st + m) : doc + st;
+  }
+  if (p.js && !jsUsed) {
+    const sc = '<script>' + escEnd(p.js, 'script') + '<\/script>';
+    doc = /<\/body>/i.test(doc) ? doc.replace(/<\/body>/i, (m) => sc + m) : doc + sc;
+  }
+  return withSdk(doc, '<base href="' + projectBase(p.id) + '">');
+}
+
+/* ---------- Helpers de arquivos ---------- */
+const nfmt = (n) => n.toLocaleString('pt-BR');
+const mb = (b) => b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' MB';
+async function copyText(t) { try { await navigator.clipboard.writeText(t); toast('Copiado.'); } catch { toast('Não foi possível copiar.'); } }
+
+// Linha de um arquivo: nome, referência (para usar no código) e URL. pid = id do projeto (null se ainda não salvo)
+function fileRow(x, pid, onRemove) {
+  const icon = { imagem: '🖼️', audio: '🔊', modelo: '🧊', codigo: '📄' }[x.kind];
+  const url = pid ? fileUrl(pid, x.path) : null;
+  const btn = (label, t) => h('button', { type: 'button', class: 'btn', onclick: () => copyText(t) }, label);
+  return h('div', { class: 'filerow' },
+    h('strong', {}, icon + ' ' + x.path.split('/').pop() + ' · ' + mb(x.size)),
+    h('div', { class: 'ref' }, 'Referência:', h('code', {}, x.path), btn('Copiar referência', x.path)),
+    h('div', { class: 'ref' }, 'URL:', url ? [h('code', {}, url), btn('Copiar URL', url)] : h('em', {}, 'disponível depois de salvar')),
+    onRemove ? h('button', { type: 'button', class: 'btn danger', onclick: onRemove }, 'Remover') : null);
+}
+
+/* ---------- Validação do conteúdo dos campos ---------- */
+const stripC = (s) => s.replace(/\/\*[^]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').trim();
+const TAG = /<\/?[a-z][a-z0-9-]*[\s>\/]/i;
+// Cada verificador devolve o texto do erro, ou '' se estiver ok (regras "plausíveis", fáceis de ajustar)
+const CHECKS = {
+  html: (s) => (!s.trim() || TAG.test(s) ? '' : 'não parece HTML (nenhuma tag encontrada).'),
+  css: (s) => {
+    const t = stripC(s);
+    if (!t) return '';
+    if (TAG.test(t)) return 'parece HTML, não CSS.';
+    if (/\b(function|const|let)\s|=>|document\.|window\./.test(t)) return 'parece JavaScript, não CSS.';
+    return /\{[^]*\}/.test(t) ? '' : 'não parece CSS (nenhuma regra encontrada).';
+  },
+  js: (s) => {
+    const t = stripC(s);
+    if (!t) return '';
+    if (/^<[a-z!\/]/i.test(t)) return 'parece HTML, não JavaScript.';
+    if (/^[^=;()]*\{[^{}]*:[^{}]*\}/.test(t) && !/\b(function|const|let|var|return)\b|=>/.test(t)) return 'parece CSS, não JavaScript.';
+    return '';
+  }
+};
+const CODE_FIELDS = [   // [chave, rótulo, limite em PROJECT_LIMITS, extensões, coluna no banco]
+  ['html', 'HTML', 'MAX_HTML_CHARACTERS', '.html', 'code'],
+  ['css', 'CSS', 'MAX_CSS_CHARACTERS', '.css', 'css'],
+  ['js', 'JavaScript', 'MAX_JS_CHARACTERS', '.js', 'js']
+];
+
+/* ---------- Página: novo projeto / fork / editar ---------- */
+async function showEditor(mode, arg, my) {
+  if (!state.me) { location.hash = '#/'; return openAuth('login', 'Entre para publicar.'); }
+  if (state.me.banned) { toast('Sua conta está banida e não pode publicar.'); location.hash = '#/'; return; }
+  const isEdit = mode === 'edit';
+  let src = null, srcAssets = [];
+  if (arg) {
+    const [r, a] = await Promise.all([
+      sb.from('projects').select('id, title, description, category, code, css, js, user_id').eq('id', arg).maybeSingle(),
+      sb.from('assets').select('path, kind, size').eq('project_id', arg)]);
+    if (r.error) throw r.error;
+    if (my !== nav) return;
+    src = r.data; srcAssets = a.data || [];
+    if (!src) { $('#view').replaceChildren(h('p', { class: 'empty' }, 'Projeto não encontrado.')); return; }
+    if (isEdit && src.user_id !== state.me.id && !isStaff()) { toast('Sem permissão para editar.'); location.hash = '#/'; return; }
+  }
+  const forkOf = !isEdit && src ? src.id : null;
+  const B = sb.storage.from(STORAGE_BUCKET);
+  const LIM = PROJECT_LIMITS.MAX_ASSETS_MB * 1048576;
+  let files = srcAssets.map((a) => ({ ...a, old: true }));   // old = já existe no servidor (ou será copiado, no fork)
+  const removed = [];
+
+  const title = h('input', { required: '', minlength: '2', maxlength: '80', value: src ? src.title + (forkOf ? ' (fork)' : '') : '' });
+  const category = h('select', {}, CATS.map((c) => h('option', { value: c, selected: src && c === src.category }, c)));
+  const description = h('textarea', { rows: '2', required: '', minlength: '2', maxlength: '300' });
+  description.value = src ? ((forkOf ? 'Fork de ' + src.title + '. ' : '') + src.description).slice(0, 300) : '';
+
+  const fields = CODE_FIELDS.map(([key, label, max, accept, col]) => {
+    const ta = h('textarea', { class: 'mono', rows: '10', spellcheck: 'false', 'aria-label': label, placeholder: 'Cole seu código ' + label + ' aqui ou arraste um arquivo ' + accept });
+    ta.value = src ? src[col] : '';
+    ta.addEventListener('input', problems);
+    ta.addEventListener('dragover', (e) => e.preventDefault());
+    ta.addEventListener('drop', async (e) => { e.preventDefault(); const fl = e.dataTransfer.files[0]; if (fl) { ta.value = await fl.text(); problems(); } });
+    return { key, label, max, col, ta, err: h('p', { class: 'error' }) };
+  });
+  const submit = h('button', { type: 'submit', class: 'btn solid' }, isEdit ? 'Salvar alterações' : 'Criar projeto');
+  const status = h('p', { class: 'hint' });
+
+  function problems() {
+    let bad = false;
+    for (const f of fields) {
+      const s = f.ta.value, lim = PROJECT_LIMITS[f.max], why = CHECKS[f.key](s);
+      f.err.textContent = s.length > lim
+        ? 'O arquivo ' + f.label + ' ultrapassa o limite permitido.\nLimite: ' + nfmt(lim) + ' caracteres\nEncontrado: ' + nfmt(s.length) + ' caracteres'
+        : why ? 'Campo ' + f.label + ': ' + why : '';
+      bad = bad || !!f.err.textContent;
+    }
+    submit.disabled = bad;
+    return bad;
+  }
+
+  // Assets
+  const used = () => files.reduce((n, x) => n + x.size, 0);
+  const list = h('div', {}), meter = h('p', { class: 'hint' }), assetErr = h('p', { class: 'error' });
+  function drawFiles() {
+    meter.textContent = 'Armazenamento utilizado: ' + mb(used()) + ' / ' + PROJECT_LIMITS.MAX_ASSETS_MB + ' MB · Disponível: ' + mb(LIM - used());
+    list.replaceChildren(...files.map((x) => fileRow(x, isEdit && x.old ? src.id : null, () => {
+      if (x.old && isEdit) removed.push(x.path);
+      files = files.filter((y) => y !== x); drawFiles();
+    })));
+  }
+  function addFiles(fl) {
+    const msgs = [];
+    for (const file of fl) {
+      const t = ASSET_TYPES[(file.name.split('.').pop() || '').toLowerCase()];
+      if (!t) { msgs.push(file.name + ': formato não permitido (use ' + Object.keys(ASSET_TYPES).join(', ') + ').'); continue; }
+      const path = t.dir + '/' + file.name.toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+      if (!file.size) { msgs.push(file.name + ': arquivo vazio.'); continue; }
+      if (files.some((x) => x.path === path)) { msgs.push(path + ': já existe neste projeto.'); continue; }
+      if (used() + file.size > LIM) { msgs.push(file.name + ' (' + mb(file.size) + ') não cabe: passaria de ' + PROJECT_LIMITS.MAX_ASSETS_MB + ' MB (disponível: ' + mb(LIM - used()) + ').'); continue; }
+      files.push({ path, kind: KIND[t.dir], size: file.size, file, mime: t.mime });
+    }
+    assetErr.textContent = msgs.join('\n');
+    drawFiles();
+  }
+  const zone = h('div', { class: 'drop' }, 'Arraste aqui imagens (.avif, .webp), áudios (.opus, .aac) e modelos 3D (.glb), ou ',
+    h('input', { type: 'file', multiple: '', accept: Object.keys(ASSET_TYPES).map((e) => '.' + e).join(','), onchange: (e) => { addFiles([...e.target.files]); e.target.value = ''; } }));
+  zone.addEventListener('dragover', (e) => e.preventDefault());
+  zone.addEventListener('drop', (e) => { e.preventDefault(); addFiles([...e.dataTransfer.files]); });
+
+  const form = h('form', { class: 'editor' },
+    h('h1', {}, isEdit ? 'Editar projeto' : forkOf ? 'Novo fork' : 'Novo projeto'),
+    h('label', {}, 'Nome do projeto', title), h('label', {}, 'Categoria', category), h('label', {}, 'Descrição curta', description),
+    h('section', {}, h('h2', {}, 'Código (opcional)'),
+      h('p', { class: 'hint' }, 'Cole o código ou arraste o arquivo para o campo. Dentro do projeto, use só o nome: style.css, script.js, imagens/foto.webp.'),
+      fields.map((f) => h('label', {}, f.label, f.ta, f.err))),
+    h('section', {}, h('h2', {}, 'Assets'), zone, meter, assetErr, list),
+    status, h('div', { class: 'row' }, h('a', { class: 'btn ghost', href: isEdit ? '#/p/' + src.id : '#/' }, 'Cancelar'), submit));
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (problems()) return;
+    submit.disabled = true;
+    const body = { title: title.value.trim(), category: category.value, description: description.value.trim() };
+    for (const f of fields) body[f.col] = f.ta.value;
+    let id = isEdit ? src.id : null;
+    const uploaded = [];
+    try {
+      if (isEdit) {
+        const { data, error } = await sb.from('projects').update(body).eq('id', id).select('id');
+        if (error) throw error;
+        if (!data.length) throw new Error('Sem permissão para alterar este projeto.');
+      } else {
+        if (forkOf) body.forked_from = forkOf;
+        const { data, error } = await sb.from('projects').insert(body).select('id').single();
+        if (error) throw error;
+        id = data.id;
+      }
+      const fresh = files.filter((x) => x.file), copies = isEdit ? [] : files.filter((x) => x.old);
+      let n = 0;
+      for (const x of fresh) {
+        status.textContent = 'Enviando arquivo ' + (++n) + ' de ' + fresh.length + '…';
+        const { error } = await B.upload(id + '/' + x.path, x.file, { contentType: x.mime, upsert: true });
+        if (error) throw error;
+        uploaded.push(id + '/' + x.path);
+      }
+      for (const x of copies) {   // fork: copia os assets do original
+        status.textContent = 'Copiando ' + x.path + '…';
+        const { error } = await B.copy(src.id + '/' + x.path, id + '/' + x.path);
+        if (error) throw error;
+        uploaded.push(id + '/' + x.path);
+      }
+      const rows = [...fresh, ...copies].map((x) => ({ project_id: id, path: x.path, kind: x.kind, size: x.size }));
+      if (rows.length) { const { error } = await sb.from('assets').insert(rows); if (error) throw error; }
+      if (removed.length) {
+        await sb.from('assets').delete().eq('project_id', id).in('path', removed);
+        await B.remove(removed.map((p) => id + '/' + p));
+      }
+      // cópias do código no Storage: servem só para ter uma URL de cada arquivo
+      for (const [name, col, mime] of CODE_FILES) {
+        if (body[col]) await B.upload(id + '/' + name, new Blob([body[col]], { type: mime }), { contentType: mime, upsert: true });
+        else if (isEdit) await B.remove([id + '/' + name]);
+      }
+      state.list = null;
+      toast(isEdit ? 'Projeto atualizado.' : forkOf ? 'Fork criado!' : 'Projeto criado!');
+      location.hash = '#/p/' + id;
+    } catch (err) {
+      if (uploaded.length) await B.remove(uploaded).catch(() => {});
+      if (!isEdit && id) await sb.from('projects').delete().eq('id', id);
+      if (isAuthErr(err)) requireLogin(); else status.textContent = 'Erro: ' + friendly(err);
+      submit.disabled = false;
+    }
+  });
+
+  $('#view').replaceChildren(form);
+  problems();
+  drawFiles();
+}
+
 /* ---------- Rotas ---------- */
 async function route() {
   const my = ++nav;
@@ -571,6 +740,8 @@ async function route() {
   try {
     if (page === 'p' && /^\d+$/.test(arg || '')) await showProject(arg, my);
     else if (page === 'u' && arg) await showProfile(decodeURIComponent(arg), my);
+    else if (page === 'novo' && /^\d*$/.test(arg || '')) await showEditor('new', arg, my);
+    else if (page === 'editar' && /^\d+$/.test(arg || '')) await showEditor('edit', arg, my);
     else if (page === 'mod') await showMod(my);
     else if (page === 'docs') showDocs(arg);
     else if (page === 'novidades') showNews();
