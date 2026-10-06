@@ -36,7 +36,7 @@ const IMAGE_LIMITS = { MAX_INPUT_MB: 2, COVER_W: 640, COVER_H: 360, AVATAR_PX: 2
 const CODE_FILES = [['index.html', 'code', 'text/plain'], ['style.css', 'css', 'text/css'], ['script.js', 'js', 'text/javascript']];
 // Edite aqui as novidades do site (mais recente primeiro)
 const NEWS = [
-  { d: '2026-09-29', t: 'Perfis, forks e moderação', b: [
+  { d: '2026-10-07', t: 'Perfis, forks e moderação', b: [
     'Agora cada usuário tem perfil.',
     'Todo jogo tem página própria com forks.',
     'Segurança contra scripts maliciosos.',
@@ -45,11 +45,26 @@ const NEWS = [
     'Opção de jogar em tela cheia.',
     'Aba de [Documentação](#/docs).',
     'Aba de [Sobre nós](#/sobre).',
+    'Aba de [Apoia-se](https://livepix.gg/adrashirra) para quem queira ajudar o projeto.',
     'Moderação ativa.',
-    'Suporte a records e rankings. (veja a [Documentação](#/docs) para saber como implementar)'
+    'Suporte a upload de arquivos 3d, áudio e imagens.',
+    'Fotos de perfis e capas de jogos.',
+    'Limite de 400 mil caracteres por Html,  200 mil por css, e 1 milhão por javascript.',
+    'Suporte a records, rankings e online.'
   ] }
 ];
-const ABOUT = 'A Bancada é a vitrine de apps e jogos em HTML da turma. Todo mundo pode jogar e ler o código; só o autor (ou a moderação) altera um projeto. Quer melhorar o jogo de alguém? Crie um fork.';
+const ABOUT = [
+  'A Bancada é a vitrine de apps e jogos feitos em HTML, CSS e JavaScript. Todo mundo pode jogar, ler o código e criar jogos, mas só o autor pode alterar o próprio projeto. Quer modificar o jogo de alguém? Crie um fork!',
+  'A ideia da Bancada é dar a pessoas que não sabem programar a chance de criar jogos com ferramentas de geração de código, e acompanhar como elas evoluem e que jogos criam quando recebem boa orientação.',
+  'A Bancada é um projeto independente e sem fins lucrativos.'
+];
+
+const TEAM = [
+  '[Adra](#/u/adra)',
+  '[Planeta](#/u/Nelson69)',
+  '[Davi](#/u/Dave007)'
+];
+
 const CFG = window.CONFIG || {};
 const configured = CFG.SUPABASE_URL && !CFG.SUPABASE_URL.startsWith('COLE_') && CFG.SUPABASE_ANON_KEY && !CFG.SUPABASE_ANON_KEY.startsWith('COLE_');
 const sb = configured ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
@@ -71,6 +86,9 @@ let nav = 0, toastTimer, cleanup = null;
 const fmtDate = (t) => new Date(t).toLocaleDateString('pt-BR');
 const emailOf = (u) => u.toLowerCase() + '@' + CFG.EMAIL_DOMAIN;
 const isStaff = () => !!state.me && !state.me.banned && ['owner', 'moderator'].includes(state.me.role);
+// Envio de arquivos (imagens, áudios, modelos 3D): só dono, moderadores e quem recebeu permissão.
+// A regra de verdade fica no banco (RLS, veja permissao-upload.sql); aqui só ajustamos a tela.
+const canUpload = () => !!state.me && !state.me.banned && (isStaff() || state.me.can_upload === true);
 const canSeeProject = (p) => !!p && (p.is_public !== false || (state.me && !state.me.banned && (state.me.id === p.user_id || isStaff())));
 const privacyLabel = (p) => p.is_public === false ? 'Privado' : 'Público';
 
@@ -110,7 +128,7 @@ async function loadList(force) {
 async function loadMe(session) {
   if (!session) { state.me = null; return; }
   const uid = session.user.id;
-  const get = () => sb.from('profiles').select('id, username, role, banned, avatar_at').eq('id', uid).maybeSingle();
+  const get = () => sb.from('profiles').select('id, username, role, banned, avatar_at, can_upload').eq('id', uid).maybeSingle();
   let { data, error } = await get();
   if (error) throw error;
   if (!data) {
@@ -232,12 +250,15 @@ function userActions(u, after) {
   const run = async (fn, args, msg) => { if (await rpc(fn, args, msg)) after(); };
   return h('div', { class: 'actions' },
     h('button', { class: 'btn', onclick: () => run('set_ban', { target: u.id, flag: !u.banned }, u.banned ? 'Conta reativada.' : 'Conta banida.') }, u.banned ? 'Reativar' : 'Banir'),
+    // Dono e moderadores já podem enviar arquivos sempre; o botão vale só para usuários comuns
+    u.role === 'user' ? h('button', { class: 'btn', onclick: () => run('set_can_upload', { target: u.id, flag: !u.can_upload }, u.can_upload ? 'Envio de arquivos revogado.' : 'Envio de arquivos liberado.') }, u.can_upload ? 'Revogar envio de arquivos' : 'Permitir envio de arquivos') : null,
     h('button', { class: 'btn danger', onclick: () => { if (confirm('Excluir a conta @' + u.username + ' e todos os projetos dela?')) run('delete_user', { target: u.id }, 'Conta excluída.'); } }, 'Excluir conta'),
     me.role === 'owner' ? h('button', { class: 'btn', onclick: () => run('set_role', { target: u.id, new_role: u.role === 'moderator' ? 'user' : 'moderator' }, 'Cargo atualizado.') }, u.role === 'moderator' ? 'Remover moderador' : 'Tornar moderador') : null);
 }
 
 const roleTag = (u) => [
   u.role === 'owner' ? h('span', { class: 'tag role' }, 'Dono') : u.role === 'moderator' ? h('span', { class: 'tag role' }, 'Moderador') : null,
+  u.role === 'user' && u.can_upload && !u.banned ? h('span', { class: 'tag' }, 'Envia arquivos') : null,
   u.banned ? h('span', { class: 'tag ban' }, 'Banido') : null];
 
 /* ---------- SDK de ranking (injetado em todo jogo) ---------- */
@@ -320,12 +341,9 @@ async function showHome(my) {
   };
   $('#view').replaceChildren(
     h('section', { class: 'hero' },
-      h('h1', {}, 'Jogue, leia, faça fork.'),
-      h('p', {}, 'Apps e jogos em HTML feitos pela turma. Clique e jogue em tela cheia.'),
-      h('div', { class: 'row' },
-        h('a', { class: 'btn solid', href: '#/novidades' }, "What's new"),
-        h('a', { class: 'btn', href: '#/sobre' }, 'Sobre nós'),
-        h('a', { class: 'btn', href: '#/docs' }, 'Documentação'))),
+      h('h1', {}, 'Jogue, crie, e faça forks.'),
+      h('p', {}, 'Apps e jogos em HTML feitos inteiramente por I.A.'),
+      h()),
     h('div', { class: 'tools' }, h('input', {
       type: 'search', placeholder: 'Buscar por título, autor ou descrição', 'aria-label': 'Buscar', value: state.q,
       oninput: (e) => { state.q = e.target.value; draw(); }
@@ -338,12 +356,23 @@ function showNews() {
   $('#view').replaceChildren(h('div', { class: 'page' }, h('h1', {}, "What's new"),
     ...NEWS.map((n) => h('article', {}, h('time', {}, fmtDate(n.d)), h('h2', {}, n.t), (Array.isArray(n.b) ? h('ol', {}, n.b.map((i) => h('li', {}, rich(i)))) : h('p', {}, rich(n.b)))))));
 }
+const SUPPORT_URL = 'https://livepix.gg/adrashirra';
+const SUPPORT_TEXT = 'A Bancada é feita por diversão sem fins lucrativos. Se você curte o projeto e quer ajudar a mantê-lo no ar, qualquer apoio é muito bem-vindo e agradecido. Obrigado por fazer parte!';
+
 function showAbout() {
-  $('#view').replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'Sobre nós'), h('p', {}, rich(ABOUT))));
+  $('#view').replaceChildren(h('div', { class: 'page' },
+    h('h1', {}, 'Sobre nós'),
+    ABOUT.map((t) => h('p', {}, rich(t))),
+    h('h2', {}, 'Equipe'),
+    h('ul', {}, TEAM.map((t) => h('li', {}, rich(t)))),
+    h('article', {},
+      h('h2', {}, 'Apoie a Bancada'),
+      h('p', {}, SUPPORT_TEXT),
+      h('a', { class: 'btn solid', href: SUPPORT_URL, target: '_blank', rel: 'noopener noreferrer' }, 'Apoiar pelo LivePix'))));
 }
 
 async function showProfile(name, my) {
-  const { data: u, error } = await sb.from('profiles').select('id, username, role, banned, created_at, avatar_at').eq('username', name).maybeSingle();
+  const { data: u, error } = await sb.from('profiles').select('id, username, role, banned, created_at, avatar_at, can_upload').eq('username', name).maybeSingle();
   if (error) throw error;
   const list = await loadList();
   if (my !== nav) return;
@@ -516,7 +545,7 @@ async function showProject(id, my) {
 async function showMod(my) {
   if (!isStaff()) { location.hash = '#/'; return; }
   const [{ data: users, error }, list, { data: reps }] = await Promise.all([
-    sb.from('profiles').select('id, username, role, banned').order('username'), loadList(),
+    sb.from('profiles').select('id, username, role, banned, can_upload').order('username'), loadList(),
     sb.from('reports').select('id, reason, created_at, project_id, profile_id, project:projects!project_id(title), target:profiles!profile_id(username), reporter:profiles!reporter_id(username)')
       .eq('status', 'open').order('created_at', { ascending: false }).limit(100)]);
   if (error) throw error;
@@ -601,7 +630,10 @@ async function desenharRanking() {
     ['h3', 'Não funciona'],
     ['ul', ["`localStorage`, `sessionStorage` e cookies (use o ranking da Bancada para guardar pontuação).", "Abrir popups, baixar arquivos ou redirecionar a página do site."]],
     ['h3', 'Limites'],
-    ['ul', ["O jogo é um único arquivo HTML, com CSS e JS dentro, de até 400 mil caracteres."]]
+    ['ul', [
+      "O código fica em três campos: HTML (até 400 mil caracteres), CSS (até 200 mil) e JavaScript (até 1 milhão).",
+      "Imagens, áudios e modelos 3D só podem ser enviados por quem recebeu permissão da moderação (por enquanto, enquanto testamos o site). Sem a permissão, você usa HTML, CSS e JavaScript normalmente, inclusive bibliotecas por CDN.",
+      "Precisa enviar arquivos no seu jogo? Peça a um moderador para liberar o envio na sua conta."]]
   ] },
   { id: 'forks', title: 'Publicar e fazer forks', blocks: [
     ['ul', [
@@ -795,10 +827,19 @@ async function showEditor(mode, arg, my) {
     if (!src) { $('#view').replaceChildren(h('p', { class: 'empty' }, 'Projeto não encontrado.')); return; }
     if (isEdit && src.user_id !== state.me.id && !isStaff()) { toast('Sem permissão para editar.'); location.hash = '#/'; return; }
   }
+  // Reconsulta a permissão de envio: ela pode ter sido liberada ou revogada depois do login
+  try {
+    const { data: perm } = await sb.from('profiles').select('can_upload').eq('id', state.me.id).maybeSingle();
+    if (perm) state.me.can_upload = perm.can_upload === true;
+  } catch { /* mantém o valor que já temos */ }
+  if (my !== nav) return;
+  const mayUpload = canUpload();
   const forkOf = !isEdit && src ? src.id : null;
   const B = sb.storage.from(STORAGE_BUCKET);
   const LIM = PROJECT_LIMITS.MAX_ASSETS_MB * 1048576;
-  let files = srcAssets.map((a) => ({ ...a, old: true }));   // old = já existe no servidor (ou será copiado, no fork)
+  // Sem permissão de envio, um fork não copia os arquivos do original (a cópia também ocupa espaço no Storage)
+  const skippedAssets = !isEdit && forkOf && !mayUpload ? srcAssets.length : 0;
+  let files = skippedAssets ? [] : srcAssets.map((a) => ({ ...a, old: true }));   // old = já existe no servidor (ou será copiado, no fork)
   const removed = [];
 
   const title = h('input', { required: '', minlength: '2', maxlength: '80', value: src ? src.title + (forkOf ? ' (fork)' : '') : '' });
@@ -852,6 +893,7 @@ async function showEditor(mode, arg, my) {
   const used = () => files.reduce((n, x) => n + x.size, 0);
   const list = h('div', {}), meter = h('p', { class: 'hint' }), assetErr = h('p', { class: 'error' });
   function drawFiles() {
+    meter.hidden = !mayUpload && !files.length;   // sem permissão e sem arquivos, o medidor só confunde
     meter.textContent = 'Armazenamento utilizado: ' + mb(used()) + ' / ' + PROJECT_LIMITS.MAX_ASSETS_MB + ' MB · Disponível: ' + mb(LIM - used());
     list.replaceChildren(...files.map((x) => fileRow(x, isEdit && x.old ? src.id : null, () => {
       if (x.old && isEdit) removed.push(x.path);
@@ -859,6 +901,7 @@ async function showEditor(mode, arg, my) {
     })));
   }
   function addFiles(fl) {
+    if (!mayUpload) return;
     const msgs = [];
     for (const file of fl) {
       const t = ASSET_TYPES[(file.name.split('.').pop() || '').toLowerCase()];
@@ -876,6 +919,10 @@ async function showEditor(mode, arg, my) {
     h('input', { type: 'file', multiple: '', accept: Object.keys(ASSET_TYPES).map((e) => '.' + e).join(','), onchange: (e) => { addFiles([...e.target.files]); e.target.value = ''; } }));
   zone.addEventListener('dragover', (e) => e.preventDefault());
   zone.addEventListener('drop', (e) => { e.preventDefault(); addFiles([...e.dataTransfer.files]); });
+  // Quem não tem permissão vê este aviso no lugar da área de envio
+  const noUpload = h('div', { class: 'drop' },
+    'O envio de imagens, áudios e modelos 3D está liberado só para quem recebeu permissão da moderação. Você pode usar HTML, CSS e JavaScript normalmente. Para enviar arquivos, peça a um moderador.' +
+    (skippedAssets ? ' O projeto original tem ' + skippedAssets + ' arquivo(s) que não serão copiados para o fork.' : ''));
 
   // Capa (opcional): vira 640x360 WebP no navegador antes de enviar
   let coverBlob = null, coverRemove = false;
@@ -902,7 +949,7 @@ async function showEditor(mode, arg, my) {
     h('section', {}, h('h2', {}, 'Código (opcional)'),
       h('p', { class: 'hint' }, 'Cole o código ou arraste o arquivo para o campo. Dentro do projeto, use só o nome: style.css, script.js, imagens/foto.webp.'),
       fields.map((f) => h('label', {}, f.label, f.ta, f.err))),
-    h('section', {}, h('h2', {}, 'Assets'), zone, meter, assetErr, list),
+    h('section', {}, h('h2', {}, 'Assets'), mayUpload ? zone : noUpload, meter, assetErr, list),
     status, h('div', { class: 'row' }, h('a', { class: 'btn ghost', href: isEdit ? '#/p/' + src.id : '#/' }, 'Cancelar'), submit));
 
   form.addEventListener('submit', async (e) => {
@@ -929,7 +976,7 @@ async function showEditor(mode, arg, my) {
         if (error) throw error;
         id = data.id;
       }
-      const fresh = files.filter((x) => x.file), copies = isEdit ? [] : files.filter((x) => x.old);
+      const fresh = mayUpload ? files.filter((x) => x.file) : [], copies = isEdit || !mayUpload ? [] : files.filter((x) => x.old);
       let n = 0;
       for (const x of fresh) {
         status.textContent = 'Enviando arquivo ' + (++n) + ' de ' + fresh.length + '…';
